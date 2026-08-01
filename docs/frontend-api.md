@@ -53,6 +53,65 @@ Slot content is styled by the plugin. The webapp's own component styles are scop
 to nodes you create, so ship whatever CSS you need — `ctx.injectCss(cssText)` adds a stylesheet
 scoped to your plugin's containers.
 
+## Full views
+
+Slots are for adding to existing screens. For anything larger — a map, a dashboard, a whole new
+screen — register a **view**. It gets its own entry in the navigation and a full-size container:
+
+```js
+ctx.views.register({
+  id: 'map',
+  label: 'Map',
+  icon: 'map',                 // Material icon name
+  mount: function (el) {
+    // el is a full-size container. Do whatever you like with it.
+    var map = new SomeMapLibrary(el)
+    ctx.on('call', function (call) { map.addMarker(call) })
+    return function () { map.destroy() }   // optional teardown
+  }
+})
+```
+
+`mount` may return a teardown function, called when the view is left or the plugin is disabled.
+
+## Shipping assets
+
+Everything under your plugin's `web/` directory is served at `/plugins/<your-id>/web/`. Bundle
+libraries, stylesheets, images or fonts alongside `plugin.js` and load them with helpers that resolve
+relative to your plugin:
+
+```js
+ctx.assets.url('leaflet.css')                 // -> /plugins/<id>/web/leaflet.css
+ctx.assets.loadScript('leaflet.js')           // -> Promise, resolves once loaded
+ctx.assets.loadStyle('leaflet.css')           // -> Promise
+```
+
+Load third-party libraries this way rather than from a CDN — it keeps the plugin working on isolated
+networks, which is common for scanner installs.
+
+## Talking to other services
+
+Browser code can call any origin your users' browsers can reach, subject to that service's CORS
+policy. When a service does not allow cross-origin browser requests, or the request needs a secret,
+proxy it through your backend half instead:
+
+```js
+// web/plugin.js
+ctx.api.get('tiles?z=10&x=5&y=3')
+
+// main.js — keeps the API key server-side
+rdio.routes.register('GET', 'tiles', function (req) {
+  return rdio.http.request({
+    url: 'https://tiles.example.com/' + req.query.z + '/' + req.query.x + '/' + req.query.y,
+    headers: { Authorization: 'Bearer ' + rdio.config.get('apiKey') }
+  }).then(function (res) {
+    return { status: res.status, headers: { 'Content-Type': 'image/png' }, body: res.body }
+  })
+})
+```
+
+Never put credentials in frontend code — `web/` is served to every client.
+
 ## Server communication
 
 ```js

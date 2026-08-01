@@ -6,7 +6,7 @@
   "author": "Rdio Scanner",
   "license": "GPL-3.0",
   "homepage": "https://github.com/AkumasCoffin/rdio-scanner-plugins",
-  "minServerVersion": "6.14.0",
+  "minServerVersion": "6.14.0-beta.1",
   "main": "main.js",
   "web": "web/plugin.js",
   "permissions": ["routes", "ws", "config-expose"],
