@@ -56,9 +56,9 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for submitting a plugin to this reposit
 
 ## Third-party repositories
 
-Rdio Scanner can install plugins from any repository, not just this one. Plugins run with full access
-to the server and the webapp — **only add repositories you trust.** The admin panel shows a warning
-before installing from a repository other than the official one.
+Rdio Scanner can install plugins from any repository, not just this one. Installing a plugin means
+downloading code and running it on your server, so add the repositories you trust. The admin panel
+says which repository a plugin is coming from when it isn't this one.
 
 ## Licence
 

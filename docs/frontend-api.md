@@ -185,8 +185,8 @@ explicitly server-side.
 
 ## Notes
 
-- Plugin frontend code runs with full page privileges. There is no sandbox — this is what makes
-  arbitrary webapp integration possible, and it is why you should only install plugins you trust.
+- Plugin frontend code runs with full page privileges. There is no sandbox, which is what makes
+  arbitrary webapp integration possible.
 - Do not assume load order between plugins.
 - The API is versioned; `window.rdioScanner.plugins.apiVersion` tells you what you are running
   against.
