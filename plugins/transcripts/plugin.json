@@ -1,0 +1,179 @@
+{
+  "id": "transcripts",
+  "name": "Transcripts",
+  "version": "1.0.0",
+  "description": "Transcribes call audio with Whisper and shows it in the scanner.",
+  "author": "Rdio Scanner",
+  "license": "GPL-3.0",
+  "homepage": "https://github.com/AkumasCoffin/rdio-scanner-plugins",
+  "minServerVersion": "6.14.0-beta.1",
+  "main": "main.js",
+  "permissions": [
+    "http",
+    "ws",
+    "routes",
+    "routes-absolute",
+    "calls-read",
+    "config-expose",
+    "apikeys-verify",
+    "admin-verify",
+    "downstreams-forward"
+  ],
+  "config": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Enable transcription",
+      "help": "Transcribe call audio as it arrives.",
+      "default": false
+    },
+    {
+      "key": "provider",
+      "type": "select",
+      "label": "Provider",
+      "help": "Which Whisper-compatible service to use.",
+      "default": "groq",
+      "options": [
+        { "value": "groq", "label": "Groq" },
+        { "value": "openai", "label": "OpenAI" },
+        { "value": "whisper-selfhosted", "label": "Self-hosted Whisper" }
+      ]
+    },
+
+    {
+      "key": "groqBaseUrl",
+      "type": "text",
+      "label": "Groq base URL",
+      "default": "https://api.groq.com/openai/v1"
+    },
+    {
+      "key": "groqApiKey",
+      "type": "password",
+      "label": "Groq API key",
+      "help": "Several keys may be given, separated by commas — requests rotate across them and each is rate-limited on its own."
+    },
+    {
+      "key": "groqModel",
+      "type": "text",
+      "label": "Groq model",
+      "default": "whisper-large-v3-turbo"
+    },
+
+    {
+      "key": "openaiBaseUrl",
+      "type": "text",
+      "label": "OpenAI base URL",
+      "default": "https://api.openai.com/v1"
+    },
+    {
+      "key": "openaiApiKey",
+      "type": "password",
+      "label": "OpenAI API key"
+    },
+    {
+      "key": "openaiModel",
+      "type": "text",
+      "label": "OpenAI model",
+      "default": "whisper-1"
+    },
+
+    {
+      "key": "whisperBaseUrl",
+      "type": "text",
+      "label": "Self-hosted base URL",
+      "help": "Base URL of your Whisper server, without the /audio/transcriptions suffix."
+    },
+    {
+      "key": "whisperApiKey",
+      "type": "password",
+      "label": "Self-hosted API key",
+      "help": "Leave empty if your server needs no authentication."
+    },
+    {
+      "key": "whisperModel",
+      "type": "text",
+      "label": "Self-hosted model",
+      "default": "whisper-1"
+    },
+
+    {
+      "key": "language",
+      "type": "text",
+      "label": "Language",
+      "help": "ISO code such as en. Leave empty to let Whisper detect it.",
+      "default": ""
+    },
+    {
+      "key": "prompt",
+      "type": "textarea",
+      "label": "Prompt",
+      "help": "Vocabulary hints — unit names, street names, callsigns. A system can override this.",
+      "default": "",
+      "maxLength": 896
+    },
+    {
+      "key": "maxPerMinute",
+      "type": "number",
+      "label": "Requests per minute, per key",
+      "help": "0 for no limit. Groq allows 30 per key.",
+      "default": 0,
+      "min": 0
+    },
+    {
+      "key": "minAudioBytes",
+      "type": "number",
+      "label": "Minimum audio size",
+      "help": "Skip calls smaller than this many bytes. 0 transcribes everything.",
+      "default": 0,
+      "min": 0
+    },
+    {
+      "key": "waitForTranscript",
+      "type": "boolean",
+      "label": "Hold playback for the transcript",
+      "help": "Briefly delay a call in the live feed so its transcript appears with it.",
+      "default": false
+    },
+    {
+      "key": "showRetranscribeButton",
+      "type": "boolean",
+      "label": "Show the retranscribe button",
+      "help": "Adds a button to search results for admins to re-run transcription.",
+      "default": false
+    },
+    {
+      "key": "concurrency",
+      "type": "number",
+      "label": "Concurrent transcriptions",
+      "help": "How many calls may be in flight at once.",
+      "default": 8,
+      "min": 1,
+      "max": 32
+    }
+  ],
+  "tables": [
+    {
+      "name": "calls",
+      "columns": [
+        { "name": "callId", "type": "int", "primaryKey": true },
+        { "name": "transcript", "type": "text" }
+      ]
+    },
+    {
+      "name": "systems",
+      "columns": [
+        { "name": "systemId", "type": "int", "primaryKey": true },
+        { "name": "transcribe", "type": "boolean", "default": true },
+        { "name": "prompt", "type": "text" }
+      ]
+    },
+    {
+      "name": "talkgroups",
+      "columns": [
+        { "name": "systemId", "type": "int", "primaryKey": true },
+        { "name": "talkgroupId", "type": "int", "primaryKey": true },
+        { "name": "transcribe", "type": "boolean", "default": true }
+      ]
+    }
+  ]
+}
