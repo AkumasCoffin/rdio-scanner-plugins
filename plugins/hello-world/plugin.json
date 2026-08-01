@@ -1,0 +1,41 @@
+{
+  "id": "hello-world",
+  "name": "Hello World",
+  "version": "1.0.0",
+  "description": "Reference plugin. Counts calls per talkgroup and shows the count under the LCD.",
+  "author": "Rdio Scanner",
+  "license": "GPL-3.0",
+  "homepage": "https://github.com/AkumasCoffin/rdio-scanner-plugins",
+  "minServerVersion": "6.14.0",
+  "main": "main.js",
+  "web": "web/plugin.js",
+  "permissions": ["routes", "ws", "config-expose"],
+  "config": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Show call counter",
+      "help": "Display the per-talkgroup call counter under the LCD.",
+      "default": true
+    },
+    {
+      "key": "label",
+      "type": "text",
+      "label": "Counter label",
+      "help": "Text shown before the count.",
+      "default": "Calls seen",
+      "maxLength": 32
+    }
+  ],
+  "tables": [
+    {
+      "name": "counts",
+      "columns": [
+        { "name": "system", "type": "int", "primaryKey": true },
+        { "name": "talkgroup", "type": "int", "primaryKey": true },
+        { "name": "count", "type": "int", "default": 0 },
+        { "name": "lastSeen", "type": "datetime", "nullable": true }
+      ]
+    }
+  ]
+}
