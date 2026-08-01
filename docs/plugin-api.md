@@ -56,11 +56,19 @@ rdio.config.expose('myFeatureEnabled', true)
 |---|---|---|
 | `startup` | — | After the plugin is loaded and its tables exist |
 | `shutdown` | — | Server is stopping; best effort |
-| `call.ingested` | `call` | Before the call is written. Mutating the call affects what is stored. |
+| `call.ingested` | `call` | The call has arrived and is about to be written. **Observational only** — see below. |
 | `call.stored` | `call` | After the call has an id. The usual place to start work. |
 | `call.emitted` | `call` | After the call has been sent to listeners |
 | `config.changed` | — | An admin saved configuration |
 | `tick` | — | Hourly, alongside the built-in maintenance run |
+
+> **`call.ingested` cannot change the call.** Every ingest path in Rdio Scanner
+> funnels through a single goroutine, so a handler that ran synchronously there
+> would throttle the whole server for every listener. Handlers are dispatched
+> asynchronously instead, which means the call is very likely already written by
+> the time yours runs — mutating the object you receive changes nothing.
+>
+> Use `call.stored` and `rdio.calls.update` if you need to alter a call.
 
 ```js
 rdio.on('call.stored', function (call) {
@@ -91,7 +99,18 @@ var rows = rdio.db.query('select * from `seen` where `callId` = ?', [call.id])
 ```
 
 Use backtick identifiers and `?` placeholders; Rdio Scanner rewrites them for the active database
-backend. Attempting to reference a table outside your prefix is an error.
+backend. Attempting to reference a table outside your prefix is an error, as is DDL — declare tables
+in the manifest instead. A single `query` will not return more than 50,000 rows.
+
+`query` and `exec` are **synchronous, and run on your plugin's event loop**, so a slow statement
+stalls everything else your plugin is doing. That is the right trade for the small keyed reads and
+writes most plugins do. For anything that scans a large table, use the promise-returning variants,
+which run the statement off the loop:
+
+```js
+rdio.db.queryAsync('select * from `seen` where `seenAt` < ?', [cutoff])
+    .then(function (rows) { /* ... */ })
+```
 
 ## `rdio.calls`
 
@@ -101,6 +120,13 @@ Requires `calls-read` (and `calls-write` for updates).
 var call = rdio.calls.get(id, { audio: true })   // call.audio is a byte array
 var results = rdio.calls.search({ system: 1, talkgroup: 42, limit: 50 })
 ```
+
+Audio is omitted unless you ask for it — a call blob is typically 50–200 KB and most plugins never
+touch it. `call.audioSize` is always present, so you can decide whether to fetch.
+
+`rdio.calls.update(id, fields)` (requires `calls-write`) changes core call metadata. It accepts a
+deliberately narrow set of fields: your own data belongs in your own tables, and a plugin rewriting
+arbitrary columns would make a call record's provenance impossible to reason about.
 
 ### `rdio.calls.extendField(spec)`
 

@@ -16,7 +16,9 @@ It counts how many calls each talkgroup has produced and shows the running count
 | A custom websocket command, both directions | `main.js` → `rdio.ws`, `web/plugin.js` → `ctx.ws` |
 | An HTTP endpoint | `main.js` → `rdio.routes.register` |
 | Passing values to the webapp | `main.js` → `rdio.config.expose` |
-| Rendering into the webapp | `web/plugin.js` → `ctx.slots.mount('lcd-below', …)` |
+| Rendering into a slot | `web/plugin.js` → `ctx.slots.mount('lcd-below', …)` |
+| Rendering **anywhere** on the page | `web/plugin.js` → `ctx.dom.attach('[data-rdio="history-row"] …')` |
+| A whole screen of its own | `web/plugin.js` → `ctx.views.register({ … })` |
 
 ## Configuration
 

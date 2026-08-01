@@ -27,6 +27,15 @@ ctx.on('livefeed', function (enabled) { /* livefeed toggled */ })
 
 Anything a plugin exposed server-side with `rdio.config.expose` appears on the `config` payload.
 
+## Where a plugin can render
+
+There are three levels, and they are genuinely open-ended — plugin code runs in the page with full
+privileges, so nothing here is a boundary. Pick the least effort that works:
+
+1. **Slots** — regions the webapp reserves and promises to keep. Least code, most stable.
+2. **Views** — a whole screen of your own, with a navigation entry.
+3. **Direct attachment** — mount into *any* element on the page by selector.
+
 ## UI slots
 
 Slots are regions the webapp reserves for plugins. Mount a DOM node into one:
@@ -73,6 +82,44 @@ ctx.views.register({
 ```
 
 `mount` may return a teardown function, called when the view is left or the plugin is disabled.
+
+## Attaching anywhere
+
+Slots cover the common cases. When you need somewhere else, attach by selector:
+
+```js
+ctx.dom.attach('[data-rdio="history-row"]', function (el, ) {
+  el.textContent = '★'
+})
+
+// First match only — for a single overlay, banner or floating panel.
+ctx.dom.attachOnce('body', function (el) {
+  el.className = 'my-plugin-overlay'
+})
+```
+
+`attach` mounts into every current match **and every future one**. Call history rows and search
+results are created and destroyed constantly as calls arrive; a plain `querySelectorAll` at startup
+would miss all of them. Attachments are also removed automatically when the plugin is disabled, which
+hand-rolled DOM code would not be.
+
+### Stable anchors
+
+Class names are styling and change freely between releases. `data-rdio` attributes are anchors and
+do not:
+
+| Anchor | Element |
+|---|---|
+| `[data-rdio="status"]` | The status bar above the LCD |
+| `[data-rdio="lcd"]` | The LCD panel |
+| `[data-rdio="history"]` | The call history table |
+| `[data-rdio="history-row"]` | One call history row; `data-rdio-call` holds the call id |
+
+Target these rather than class names, and your plugin keeps working across upgrades.
+
+If you need something none of the above expresses, `ctx.dom.document()` hands you the raw document.
+Plugin code always had this — it runs in the page — but going through the helpers means your content
+gets re-applied and cleaned up properly instead of silently breaking the first time Angular re-renders.
 
 ## Shipping assets
 
