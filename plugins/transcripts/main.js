@@ -573,18 +573,22 @@ function scheduleFallback(call) {
 function sweepFallbacks() {
     var now = Date.now()
 
-    for (var id in fallbackTimers) {
-        if (fallbackTimers[id].dueAt > now) continue
+    for (var key in fallbackTimers) {
+        if (fallbackTimers[key].dueAt > now) continue
 
-        var entry = fallbackTimers[id]
-        delete fallbackTimers[id]
+        delete fallbackTimers[key]
+
+        // Object keys are strings. Postgres will not compare an integer column
+        // against a text parameter, so this has to be a number before it goes
+        // anywhere near a query.
+        var callId = Number(key)
 
         // The upstream may have delivered while we waited.
-        if (storedTranscript(id)) continue
+        if (storedTranscript(callId)) continue
         if (!enabled()) continue
 
-        rdio.log('info', 'upstream transcript never arrived for call ' + id + '; transcribing locally')
-        enqueue(Number(id))
+        rdio.log('info', 'upstream transcript never arrived for call ' + callId + '; transcribing locally')
+        enqueue(callId)
     }
 }
 
