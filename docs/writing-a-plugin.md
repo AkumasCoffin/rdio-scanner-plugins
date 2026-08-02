@@ -200,6 +200,10 @@ present. See [the manifest reference](manifest.md#permissions) for why.
 | [`frontend-api.md`](frontend-api.md) | Browser side: slots, views, pages, `ctx.app`, theming. |
 | [`manifest.md`](manifest.md) | `plugin.json` in full: config, tables, migrations. |
 | [`theme-contract.md`](theme-contract.md) | The CSS custom properties a theme sets. |
-| [`../plugins/hello-world`](../plugins/hello-world) | A small, complete, runnable plugin. |
-| [`../plugins/transcripts`](../plugins/transcripts) | A real one: external API, its own tables, server-to-server. |
-| [`../plugins/stream`](../plugins/stream) | A whole page: its own URL, its own rendering, no Angular. |
+| [`../plugins/hello-world`](../plugins/hello-world) | ~200 lines. Small enough to read in one sitting — start here. |
+| [`../plugins/transcripts`](../plugins/transcripts) | ~800 lines. External API with key rotation and retries, its own tables, a server-to-server protocol, and a declarative field published onto every call. |
+| [`../plugins/stream`](../plugins/stream) | ~3400 lines. A whole page at its own URL, rendering without Angular: live state off `ctx.app`, SVG geometry, an editor, and a theme-aware stylesheet. |
+
+All three are real, installable plugins. The difference is size: hello-world is
+the one to learn from, and the other two are what the API looks like carrying an
+actual feature.
