@@ -330,6 +330,22 @@ function emitTranscript(callId, system, talkgroup, text) {
         'TRX',
         { id: callId, system: system, talkgroup: talkgroup, transcript: text }
     )
+
+    // Tell other plugins too. Announced from here rather than at each of the
+    // five places a transcript can become final — local transcription, an
+    // inbound push, a transcript that beat its own call, a manual retranscribe —
+    // because this function is the one thing they all already go through. Adding
+    // a sixth path in future gets the announcement for free instead of silently
+    // missing it.
+    //
+    // publish never waits and never reports who listened, so a keyword matcher
+    // or a notifier subscribing here cannot slow transcription down or fail it.
+    rdio.plugins.publish('transcript', {
+        id: callId,
+        system: system,
+        talkgroup: talkgroup,
+        transcript: text,
+    })
 }
 
 function forwardDownstream(system, talkgroup, dateTime, text) {
@@ -573,18 +589,22 @@ function scheduleFallback(call) {
 function sweepFallbacks() {
     var now = Date.now()
 
-    for (var id in fallbackTimers) {
-        if (fallbackTimers[id].dueAt > now) continue
+    for (var key in fallbackTimers) {
+        if (fallbackTimers[key].dueAt > now) continue
 
-        var entry = fallbackTimers[id]
-        delete fallbackTimers[id]
+        delete fallbackTimers[key]
+
+        // Object keys are strings. Postgres will not compare an integer column
+        // against a text parameter, so this has to be a number before it goes
+        // anywhere near a query.
+        var callId = Number(key)
 
         // The upstream may have delivered while we waited.
-        if (storedTranscript(id)) continue
+        if (storedTranscript(callId)) continue
         if (!enabled()) continue
 
-        rdio.log('info', 'upstream transcript never arrived for call ' + id + '; transcribing locally')
-        enqueue(Number(id))
+        rdio.log('info', 'upstream transcript never arrived for call ' + callId + '; transcribing locally')
+        enqueue(callId)
     }
 }
 
@@ -864,6 +884,66 @@ rdio.routes.register('POST', 'settings', function (req) {
     }
 
     return { status: 200, body: { saved: true } }
+})
+
+// ---------------------------------------------------------------------------
+// What other plugins can ask for
+// ---------------------------------------------------------------------------
+
+// Offered so nothing else has to reach into this plugin's tables. A keyword
+// matcher or an alerting plugin querying `plugin_transcripts_calls` directly
+// would be coupled to a schema that is this plugin's business to change; asking
+// through the bus keeps that free to move.
+
+rdio.plugins.handle('get', function (args) {
+    var id = Number(args && args.id)
+    if (!id) return null
+
+    var text = storedTranscript(id)
+    return text ? { id: id, transcript: text } : null
+})
+
+// Answers "is there a transcript for this call yet", which is the question a
+// plugin waiting on one actually has. Cheaper than get() for a caller that only
+// needs to know whether to wait.
+rdio.plugins.handle('has', function (args) {
+    var id = Number(args && args.id)
+    return { id: id, ready: !!(id && storedTranscript(id)) }
+})
+
+// Transcribes on demand. Returns a promise, so the caller's own event loop keeps
+// running while this one works — and the bus refuses a call from a plugin that
+// is itself mid-call, so a cycle fails immediately rather than deadlocking.
+rdio.plugins.handle('transcribe', function (args) {
+    var id = Number(args && args.id)
+    if (!id) throw new Error('transcribe requires an id')
+
+    var existing = storedTranscript(id)
+    if (existing && !(args && args.force)) {
+        return { id: id, transcript: existing, cached: true }
+    }
+
+    var call = rdio.calls.get(id, { audio: true })
+    if (!call) throw new Error('no call ' + id)
+
+    return new Promise(function (resolve, reject) {
+        // Callback is (text, err), in that order — matching the two existing
+        // callers. Reading it as (err, text) would resolve with the error
+        // message as the transcript on every failure, and look like it worked.
+        transcribe(call, 0, {}, null, function (text, err) {
+            if (err) {
+                reject(new Error(String(err)))
+                return
+            }
+
+            if (text) {
+                storeTranscript(id, text)
+                emitTranscript(id, call.system, call.talkgroup, text)
+            }
+
+            resolve({ id: id, transcript: text || '', cached: false })
+        })
+    })
 })
 
 // ---------------------------------------------------------------------------

@@ -60,21 +60,24 @@ before deciding whether a plugin can be installed.
 
 ## Permissions
 
-Declared in `permissions`. The admin panel lists them before installing so users know what they are
-granting.
+There are none, and there is no `permissions` field to declare.
 
-| Permission | Grants |
-|---|---|
-| `http` | Outbound HTTP requests via `rdio.http` |
-| `routes` | Registering HTTP endpoints under `/api/plugin/<id>/` |
-| `routes-absolute` | Registering endpoints at arbitrary paths, including replacing core ones. Required for protocol-level plugins. |
-| `calls-read` | Reading call records and audio |
-| `calls-write` | Modifying call records |
-| `ws` | Registering and emitting websocket commands |
-| `config-expose` | Adding keys to the config payload sent to webapp clients |
+Every capability in the API is available to every plugin: the filesystem, running programs, SQL
+against any table, outbound requests, arbitrary HTTP routes, and full access to the webapp. A
+manifest that still carries a `permissions` array is accepted and the field ignored, so plugins
+written against the earlier scheme keep loading.
 
-Database access to the plugin's own tables and its config table is always available and needs no
-permission.
+The gates were removed because they never protected anything. A plugin runs in the server process
+with the server's privileges, so any plugin that wanted a capability it had not declared could
+simply declare it — the list described intent, not a boundary, while reading like a boundary. What
+actually matters is the same judgement as for any other software you install: whether you trust the
+repository you are installing from. The admin panel asks that question instead.
+
+## API version
+
+Declared in `apiVersion`. The current version is `1`; a manifest without the field is treated as
+version 1. Loading refuses a plugin built against a newer API than the server implements, rather
+than letting it fail later in a way that looks like a bug in the plugin.
 
 ## Config schema
 
@@ -92,9 +95,31 @@ Each entry in `config` becomes one field in the admin form.
 | `maxLength` | For `text` and `textarea`; renders a character counter. |
 | `required` | Blocks saving when empty. |
 | `placeholder` | Input placeholder. |
+| `showIf` | `{ "key": "otherField", "equals": [...] }` — show this field only while another one holds one of those values. |
 
-`password` fields are write-only in the admin panel — stored values are never sent back to the
-browser.
+`password` fields are write-only in the admin panel — the stored value is never sent back to the
+browser. The form shows a filled placeholder when one is set, and an empty box means *leave it
+alone*: saving a blank password keeps whatever was already stored, so clearing a secret from the UI
+alone is not possible by design. A secret that a person needs to read back — an API key they may
+have to check or extend — is better declared `text` or `textarea`.
+
+### Conditional fields
+
+`showIf` is presentation only. A hidden field keeps its stored value and is still saved, so a
+manifest can hold one set of credentials per provider and show only the relevant ones:
+
+```json
+{ "key": "provider", "type": "select", "label": "Provider", "default": "groq",
+  "options": [{ "value": "groq", "label": "Groq" }, { "value": "openai", "label": "OpenAI" }] },
+{ "key": "groqApiKey", "type": "textarea", "label": "Groq — API key(s)",
+  "showIf": { "key": "provider", "equals": ["groq"] } },
+{ "key": "openaiApiKey", "type": "textarea", "label": "OpenAI — API key(s)",
+  "showIf": { "key": "provider", "equals": ["openai"] } }
+```
+
+Switching provider therefore hides the other's key rather than discarding it. The condition may name
+a field declared later in the list, but not the field itself, and the named key must exist — a typo
+fails the manifest at install rather than hiding the field silently forever.
 
 Values are read at runtime with `rdio.config.get(key)`. Configuration lives in the plugin's own table
 and **survives uninstall**.

@@ -1,24 +1,14 @@
 {
   "id": "transcripts",
   "name": "Transcripts",
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "apiVersion": 1,
   "description": "Transcribes call audio with Whisper and shows it in the scanner.",
   "author": "Rdio Scanner",
   "license": "GPL-3.0",
   "homepage": "https://github.com/AkumasCoffin/rdio-scanner-plugins",
   "minServerVersion": "6.14.0-beta.1",
   "main": "main.js",
-  "permissions": [
-    "http",
-    "ws",
-    "routes",
-    "routes-absolute",
-    "calls-read",
-    "config-expose",
-    "apikeys-verify",
-    "admin-verify",
-    "downstreams-forward"
-  ],
   "config": [
     {
       "key": "enabled",
@@ -31,91 +21,116 @@
       "key": "provider",
       "type": "select",
       "label": "Provider",
-      "help": "Which Whisper-compatible service to use.",
+      "help": "Which transcription backend to use. Each provider's URL, key and model are stored separately, so switching between them does not lose credentials. Only the settings for the selected provider are shown.",
       "default": "groq",
       "options": [
         { "value": "groq", "label": "Groq" },
-        { "value": "openai", "label": "OpenAI" },
-        { "value": "whisper-selfhosted", "label": "Self-hosted Whisper" }
+        { "value": "openai", "label": "Whisper (OpenAI)" },
+        { "value": "whisper-selfhosted", "label": "Whisper (self-hosted)" }
       ]
     },
 
     {
       "key": "groqBaseUrl",
       "type": "text",
-      "label": "Groq base URL",
-      "default": "https://api.groq.com/openai/v1"
+      "label": "Groq — base URL",
+      "help": "OpenAI-compatible base URL. The server appends /audio/transcriptions itself.",
+      "default": "https://api.groq.com/openai/v1",
+      "placeholder": "https://api.groq.com/openai/v1",
+      "showIf": { "key": "provider", "equals": ["groq"] }
     },
     {
       "key": "groqApiKey",
-      "type": "password",
-      "label": "Groq API key",
-      "help": "Several keys may be given, separated by commas — requests rotate across them and each is rate-limited on its own."
+      "type": "textarea",
+      "label": "Groq — API key(s)",
+      "help": "Sent as Authorization: Bearer <key>. Several keys may be given, separated by commas, semicolons or newlines — requests round-robin across them and each backs off independently on 429.",
+      "placeholder": "gsk_xxxx, gsk_yyyy, …",
+      "showIf": { "key": "provider", "equals": ["groq"] }
     },
     {
       "key": "groqModel",
       "type": "text",
-      "label": "Groq model",
-      "default": "whisper-large-v3-turbo"
+      "label": "Groq — model",
+      "help": "Any model identifier Groq accepts on its /audio/transcriptions endpoint.",
+      "default": "whisper-large-v3-turbo",
+      "placeholder": "whisper-large-v3-turbo",
+      "showIf": { "key": "provider", "equals": ["groq"] }
     },
 
     {
       "key": "openaiBaseUrl",
       "type": "text",
-      "label": "OpenAI base URL",
-      "default": "https://api.openai.com/v1"
+      "label": "Whisper (OpenAI) — base URL",
+      "help": "The server appends /audio/transcriptions itself.",
+      "default": "https://api.openai.com/v1",
+      "placeholder": "https://api.openai.com/v1",
+      "showIf": { "key": "provider", "equals": ["openai"] }
     },
     {
       "key": "openaiApiKey",
-      "type": "password",
-      "label": "OpenAI API key"
+      "type": "textarea",
+      "label": "Whisper (OpenAI) — API key(s)",
+      "help": "Secret API key (sk-…), sent as Authorization: Bearer. Several may be given, separated by commas, semicolons or newlines.",
+      "placeholder": "sk-…",
+      "showIf": { "key": "provider", "equals": ["openai"] }
     },
     {
       "key": "openaiModel",
       "type": "text",
-      "label": "OpenAI model",
-      "default": "whisper-1"
+      "label": "Whisper (OpenAI) — model",
+      "help": "Any model identifier OpenAI accepts on its /audio/transcriptions endpoint.",
+      "default": "whisper-1",
+      "placeholder": "whisper-1",
+      "showIf": { "key": "provider", "equals": ["openai"] }
     },
 
     {
       "key": "whisperBaseUrl",
       "type": "text",
-      "label": "Self-hosted base URL",
-      "help": "Base URL of your Whisper server, without the /audio/transcriptions suffix."
+      "label": "Whisper (self-hosted) — base URL",
+      "help": "URL of your own Whisper server — whisper.cpp, faster-whisper-server, or anything else exposing an OpenAI-compatible /audio/transcriptions endpoint. Enter only the base path; the server appends the rest. Required — there is no default.",
+      "placeholder": "http://localhost:8000/v1",
+      "showIf": { "key": "provider", "equals": ["whisper-selfhosted"] }
     },
     {
       "key": "whisperApiKey",
-      "type": "password",
-      "label": "Self-hosted API key",
-      "help": "Leave empty if your server needs no authentication."
+      "type": "textarea",
+      "label": "Whisper (self-hosted) — API key(s)",
+      "help": "Optional. Leave blank if your server needs no authentication.",
+      "placeholder": "(optional)",
+      "showIf": { "key": "provider", "equals": ["whisper-selfhosted"] }
     },
     {
       "key": "whisperModel",
       "type": "text",
-      "label": "Self-hosted model",
-      "default": "whisper-1"
+      "label": "Whisper (self-hosted) — model",
+      "help": "Whatever model identifier your server expects.",
+      "default": "whisper-1",
+      "placeholder": "whisper-1",
+      "showIf": { "key": "provider", "equals": ["whisper-selfhosted"] }
     },
 
     {
       "key": "language",
       "type": "text",
       "label": "Language",
-      "help": "ISO code such as en. Leave empty to let Whisper detect it.",
-      "default": ""
+      "help": "Optional ISO-639-1 code such as en. Leave blank to auto-detect.",
+      "default": "",
+      "placeholder": "en"
     },
     {
       "key": "prompt",
       "type": "textarea",
-      "label": "Prompt",
-      "help": "Vocabulary hints — unit names, street names, callsigns. A system can override this.",
+      "label": "Prompt (global fallback)",
+      "help": "Optional prompt biasing Whisper toward your vocabulary — unit IDs, 10-codes, agency names. Used for systems that have no prompt of their own. Groq enforces a hard 896-character cap and longer values are truncated when sending to it, keeping the trailing portion; other providers receive the prompt as-is.",
       "default": "",
-      "maxLength": 896
+      "placeholder": "Unit IDs, 10-codes, agency names..."
     },
     {
       "key": "maxPerMinute",
       "type": "number",
-      "label": "Requests per minute, per key",
-      "help": "0 for no limit. Groq allows 30 per key.",
+      "label": "Max transcriptions / minute (per key)",
+      "help": "Per-key cap on requests in the last 60 seconds. Groq enforces 30/min per key, so set 30 or a little below. Effective throughput is this × number of keys. 0 disables the cap. When every key is at its limit or backing off on a 429, incoming calls are skipped rather than queued.",
       "default": 0,
       "min": 0
     },
@@ -123,22 +138,22 @@
       "key": "minAudioBytes",
       "type": "number",
       "label": "Minimum audio size",
-      "help": "Skip calls smaller than this many bytes. 0 transcribes everything.",
+      "help": "Skip transcription for clips smaller than this many bytes. Tiny clips are usually squelch bursts or mic-keys that waste quota. 0 disables the filter; 8000 is roughly 2 seconds at typical rdio bitrates.",
       "default": 0,
       "min": 0
     },
     {
       "key": "waitForTranscript",
       "type": "boolean",
-      "label": "Hold playback for the transcript",
-      "help": "Briefly delay a call in the live feed so its transcript appears with it.",
+      "label": "Wait for transcript",
+      "help": "Every client holds each call's audio playback for up to 15 seconds until its transcript is ready, then plays. If Whisper does not answer in time the call plays without one — no calls are lost. Applies to all clients globally.",
       "default": false
     },
     {
       "key": "showRetranscribeButton",
       "type": "boolean",
-      "label": "Show the retranscribe button",
-      "help": "Adds a button to search results for admins to re-run transcription.",
+      "label": "Show retranscribe button",
+      "help": "Exposes a per-row retranscribe button on the Search Call page for authenticated admins. Leave off to keep the UI clean — retranscription is still available through the admin API.",
       "default": false
     },
     {
