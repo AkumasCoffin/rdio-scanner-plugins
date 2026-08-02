@@ -16,7 +16,7 @@
 
             // Parts are loaded by the entry rather than bundled, so the source
             // stays readable and the plugin needs no build step to install.
-            var parts = ['layout.js', 'store.js', 'state.js', 'render.js', 'shapes.js', 'scroll.js', 'gate.js', 'props.js', 'edit.js']
+            var parts = ['layout.js', 'store.js', 'state.js', 'render.js', 'shapes.js', 'scroll.js', 'gate.js', 'mirror.js', 'props.js', 'edit.js']
 
             var loading = parts.reduce(function (chain, file) {
                 return chain.then(function () { return ctx.assets.loadScript('web/' + file) })
@@ -66,6 +66,14 @@
             console.error('[stream] could not enter follower mode', err)
         }
 
+        // The other half of follower mode: report back what the overlay is
+        // showing, so the main scanner page's LCD shows the same call. Its own
+        // feed is stopped while the overlay is open, so without this the main
+        // page is a set of controls over a blank screen. A separate
+        // subscription from the renderer's because it is a different job — the
+        // renderer draws, this reports.
+        var mirror = new window.RdioStreamMirror(app).start()
+
         // Point the manifest at this page, so installing the overlay as an app
         // opens the overlay and not the scanner. The plugin ships its own rather
         // than using the webapp's, which goes away when the built-in overlay
@@ -112,6 +120,8 @@
             gate.detach()
             scroller.stop()
 
+            mirror.stop()
+
             try {
                 if (app.disableFollowerMode) app.disableFollowerMode()
             } catch (err) {
@@ -132,4 +142,5 @@
             if (fonts.parentNode) fonts.parentNode.removeChild(fonts)
         }
     }
+
 })()

@@ -72,6 +72,14 @@ not counted in the listener total, and it follows the main page rather than
 driving playback itself — open it alongside the scanner and it mirrors what is
 playing.
 
+That relationship runs both ways. The main scanner page keeps control: skip,
+replay, pause, avoid, hold talkgroup, hold system, mute and volume all act on
+the overlay, and the talkgroup selection you make there is the selection the
+overlay plays. In return the overlay reports what it is showing, so the main
+page's own display keeps up even though its feed is stopped — without that it
+would be a set of controls over a blank screen. The audio itself is not sent
+between the windows; only the call being displayed.
+
 The transcript scrolls in time with the call. Values too long for their box
 marquee out, pause, and come back, so both ends are readable.
 
@@ -87,6 +95,7 @@ Plain JavaScript, no build step. `web/plugin.js` loads the rest.
 | `render.js` | drawing |
 | `shapes.js` | shapable-border geometry |
 | `scroll.js` | the marquee and transcript scrolling |
+| `mirror.js` | reporting the current call back to the main scanner page |
 | `props.js` | the properties panel |
 | `edit.js` | selection, gestures, the context menu |
 
