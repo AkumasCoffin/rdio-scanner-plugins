@@ -2,6 +2,7 @@
   "id": "hello-world",
   "name": "Hello World",
   "version": "1.0.0",
+  "apiVersion": 1,
   "description": "Reference plugin. Counts calls per talkgroup and shows the count under the LCD.",
   "author": "Rdio Scanner",
   "license": "GPL-3.0",
@@ -9,7 +10,6 @@
   "minServerVersion": "6.14.0-beta.1",
   "main": "main.js",
   "web": "web/plugin.js",
-  "permissions": ["routes", "ws", "config-expose"],
   "config": [
     {
       "key": "enabled",
