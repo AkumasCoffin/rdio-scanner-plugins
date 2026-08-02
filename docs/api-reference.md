@@ -31,6 +31,160 @@ unusable is treated as having done nothing, and whatever it was given passes
 through unchanged. `override` is the exception: replacing behaviour means
 owning its failures, because there is no original left to fall back to.
 
+## What a plugin can reach
+
+Nothing here is gated. A plugin does what it does, and the decision about
+whether to trust it happens once, at install.
+
+### `rdio.plugin`
+
+Identity and directories.
+
+- `id`
+- `version`
+- `dir — where this plugin's files live`
+- `dataDir — storage that survives updates`
+
+### `rdio.log`
+
+Write to the server log. Appears under the Plugins category.
+
+- `rdio.log(level, message)`
+- `console.log / warn / error`
+
+### `rdio.config`
+
+This plugin's settings, and values published to the webapp.
+
+- `get(key)`
+- `getAll()`
+- `set(key, value)`
+- `expose(key, value)`
+
+### `rdio.db`
+
+SQL against any table in the database, core's included.
+
+- `query(sql, args)`
+- `exec(sql, args)`
+- `queryAsync(sql, args)`
+- `execAsync(sql, args)`
+
+### `rdio.calls`
+
+Read calls and audio, and publish fields onto them.
+
+- `get(id, {audio})`
+- `search(options)`
+- `findId(system, talkgroup, dateTime)`
+- `update(id, fields)`
+- `extendField(spec)`
+
+### `rdio.search`
+
+Make one of your columns findable through the normal call search.
+
+- `extend(spec)`
+
+### `rdio.systems`
+
+The configured systems and talkgroups.
+
+- `list()`
+
+### `rdio.fs`
+
+The filesystem. Relative paths resolve inside this plugin's data directory.
+
+- `readFile(path)`
+- `readText(path)`
+- `writeFile(path, data)`
+- `appendFile(path, data)`
+- `exists(path)`
+- `stat(path)`
+- `list(path)`
+- `mkdir(path)`
+- `remove(path)`
+- `rename(from, to)`
+- `resolve(path)`
+- `tempDir()`
+
+### `rdio.exec`
+
+Run a program. Returns a promise with its exit code and output.
+
+- `rdio.exec(name, args, options)`
+
+### `rdio.crypto`
+
+Hashing and encoding, which JavaScript does not provide.
+
+- `hash(algorithm, data)`
+- `hmac(algorithm, key, data)`
+- `base64Encode(data)`
+- `base64Decode(text)`
+- `hexEncode(data)`
+- `hexDecode(text)`
+- `randomBytes(n)`
+- `uuid()`
+
+### `rdio.http`
+
+Outbound requests, including multipart uploads.
+
+- `request(options)`
+- `multipart(options)`
+
+### `rdio.routes`
+
+Serve HTTP endpoints.
+
+- `register(method, path, handler)`
+- `registerAbsolute(path, handler)`
+
+### `rdio.ws`
+
+Your own websocket commands, over the connection clients already have.
+
+- `on(command, handler)`
+- `emit(filter, command, payload)`
+
+### `rdio.apikeys`
+
+Validate an API key someone handed you.
+
+- `verify(key, system, talkgroup)`
+
+### `rdio.admin`
+
+Validate an admin session token.
+
+- `verifyToken(token)`
+
+### `rdio.downstreams`
+
+Forward to downstream servers without handling their keys.
+
+- `forward(spec)`
+
+### `rdio.capabilities`
+
+Advertise a feature to peer servers via /api/capabilities.
+
+- `advertise(name)`
+
+### `rdio.schedule`
+
+Run something on an interval.
+
+- `rdio.schedule(intervalMs, fn)`
+
+### `rdio.definePoint`
+
+Publish an extension point of your own.
+
+- `rdio.definePoint(name)`
+
 ## Extension points
 
 ### Lifecycle
