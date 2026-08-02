@@ -52,8 +52,7 @@ ctx.slots.mount('lcd-below', function (el, data) {
 | `lcd-sidebar` | Beside the main LCD panel |
 | `call-row-extra` | Appended to each call history row; `data` is the call |
 | `search-row-extra` | Appended to each search result row; `data` is the call |
-| `admin-tab` | A tab in the admin panel |
-| `stream-item:<type>` | Registers a new item type for the OBS stream overlay |
+| `admin-panel` | The admin panel, above Logout. Build your own `<mat-expansion-panel>` markup, or anything else. |
 
 The factory is called with a container element you own. It is re-invoked when `data` changes and torn
 down when the plugin is disabled.
@@ -114,6 +113,12 @@ do not:
 | `[data-rdio="lcd"]` | The LCD panel |
 | `[data-rdio="history"]` | The call history table |
 | `[data-rdio="history-row"]` | One call history row; `data-rdio-call` holds the call id |
+| `[data-rdio="admin"]` | The admin panel accordion |
+
+The OBS stream overlay has no slot of its own. Its item types are a fixed set the component owns, so
+there is nothing to register into — reach it with `ctx.dom.attach('.stream-item', ...)` and style it
+through the [theme contract](theme-contract.md). If you want plugin-defined overlay items, say so and
+it becomes a registration point rather than a slot.
 
 Target these rather than class names, and your plugin keeps working across upgrades.
 
@@ -182,6 +187,60 @@ ctx.config.get()   // keys this plugin exposed with rdio.config.expose
 
 Secrets are never sent to the browser. Anything a plugin wants the frontend to see must be exposed
 explicitly server-side.
+
+## The scanner itself
+
+`ctx.app` is the live `RdioScannerService` — the same object the application's own components use,
+not a copy or a curated subset.
+
+```js
+ctx.app.play(call)
+ctx.app.pause()
+ctx.app.livefeed()
+ctx.app.avoid({ call, status: true })
+ctx.app.holdTalkgroup()
+ctx.app.searchCalls({ system: 1, talkgroup: 101, limit: 50 })
+ctx.app.setVolume(0.5)
+ctx.app.getConfig()
+ctx.app.getLivefeedMap()
+ctx.app.getPresets()
+```
+
+Exposed whole, deliberately. A curated wrapper would be a second list to keep in step with the
+first, and the moment it fell behind, a plugin would be waiting on an rdio release for a method that
+already existed. Anything a component can ask the scanner to do, a plugin can too.
+
+The trade is that these are internal method names rather than a frozen API. They are stable in
+practice — they are what the app is built on — but they are not covered by the `apiVersion` promise
+the way the documented surface is.
+
+## Theming
+
+`ctx.theme` reads and writes the [theme contract](theme-contract.md): the CSS custom properties
+declared on `:root`.
+
+```js
+if (ctx.theme.version() >= 1) {
+    ctx.theme.apply({
+        accent: '#38bdf8',
+        'accent-strong': '#0ea5e9',
+        'surface-deep': '#0b1120',
+    })
+}
+
+ctx.theme.get('accent')            // current computed value
+ctx.theme.set('accent', '#f43f5e')
+ctx.theme.reset(['accent'])        // back to the stylesheet's value
+ctx.theme.reset()                  // drop every override
+```
+
+Names work with or without the leading `--`.
+
+Values are set on the document root, where the contract is defined, so they win over the stylesheet
+without a theme having to out-specify component styles. That is the point of publishing a contract:
+the application no longer hardcodes a colour anywhere that a theme would want to change, so a themes
+plugin sets around seventy properties and is done, rather than fighting selectors with `!important`
+and breaking on the next release.
 
 ## Notes
 

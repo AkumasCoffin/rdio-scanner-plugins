@@ -60,21 +60,24 @@ before deciding whether a plugin can be installed.
 
 ## Permissions
 
-Declared in `permissions`. The admin panel lists them before installing so users know what they are
-granting.
+There are none, and there is no `permissions` field to declare.
 
-| Permission | Grants |
-|---|---|
-| `http` | Outbound HTTP requests via `rdio.http` |
-| `routes` | Registering HTTP endpoints under `/api/plugin/<id>/` |
-| `routes-absolute` | Registering endpoints at arbitrary paths, including replacing core ones. Required for protocol-level plugins. |
-| `calls-read` | Reading call records and audio |
-| `calls-write` | Modifying call records |
-| `ws` | Registering and emitting websocket commands |
-| `config-expose` | Adding keys to the config payload sent to webapp clients |
+Every capability in the API is available to every plugin: the filesystem, running programs, SQL
+against any table, outbound requests, arbitrary HTTP routes, and full access to the webapp. A
+manifest that still carries a `permissions` array is accepted and the field ignored, so plugins
+written against the earlier scheme keep loading.
 
-Database access to the plugin's own tables and its config table is always available and needs no
-permission.
+The gates were removed because they never protected anything. A plugin runs in the server process
+with the server's privileges, so any plugin that wanted a capability it had not declared could
+simply declare it — the list described intent, not a boundary, while reading like a boundary. What
+actually matters is the same judgement as for any other software you install: whether you trust the
+repository you are installing from. The admin panel asks that question instead.
+
+## API version
+
+Declared in `apiVersion`. The current version is `1`; a manifest without the field is treated as
+version 1. Loading refuses a plugin built against a newer API than the server implements, rather
+than letting it fail later in a way that looks like a bug in the plugin.
 
 ## Config schema
 
