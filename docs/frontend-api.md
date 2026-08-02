@@ -188,6 +188,34 @@ ctx.config.get()   // keys this plugin exposed with rdio.config.expose
 Secrets are never sent to the browser. Anything a plugin wants the frontend to see must be exposed
 explicitly server-side.
 
+## Whole pages
+
+A plugin can own a top-level URL, rendered with no application chrome around it —
+the scanner's peer rather than something inside it.
+
+```js
+ctx.routes.register({
+    path: 'overlay',
+    mount(container, { params, query }) {
+        container.innerHTML = '<h1>my page</h1>'
+        return () => { /* optional teardown when the user navigates away */ }
+    },
+})
+```
+
+Now `/overlay` is the plugin's. The container is empty and yours; it renders
+outside Angular's change detection, so listeners you attach cost nothing.
+
+This is what a feature the size of the `/stream` overlay needs to exist as a
+plugin — its own address, rendering nothing but itself. A [view](#full-views)
+cannot do it, because a view is always inside the scanner.
+
+Two rules. A path already claimed by another plugin is refused, with the conflict
+named in the console. And built-in routes win: plugin pages are matched last, so
+claiming `admin` or `stream` while the application still owns them does nothing.
+When a built-in feature moves out to a plugin, its route leaves core at the same
+time and the path becomes claimable.
+
 ## The scanner itself
 
 `ctx.app` is the live `RdioScannerService` — the same object the application's own components use,
@@ -204,6 +232,18 @@ ctx.app.setVolume(0.5)
 ctx.app.getConfig()
 ctx.app.getLivefeedMap()
 ctx.app.getPresets()
+```
+
+Including its event stream, which carries far more than the `ctx.on` events do — livefeed state,
+playback, holds, queue changes, config:
+
+```js
+const subscription = ctx.app.event.subscribe((ev) => {
+    if (ev.call) { /* ... */ }
+    if (ev.livefeedMode !== undefined) { /* ... */ }
+})
+
+// Unsubscribe when your view or page is torn down.
 ```
 
 Exposed whole, deliberately. A curated wrapper would be a second list to keep in step with the
