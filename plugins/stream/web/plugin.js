@@ -16,7 +16,7 @@
 
             // Parts are loaded by the entry rather than bundled, so the source
             // stays readable and the plugin needs no build step to install.
-            var parts = ['layout.js', 'store.js', 'state.js', 'render.js', 'shapes.js', 'props.js', 'edit.js']
+            var parts = ['layout.js', 'store.js', 'state.js', 'render.js', 'shapes.js', 'scroll.js', 'props.js', 'edit.js']
 
             var loading = parts.reduce(function (chain, file) {
                 return chain.then(function () { return ctx.assets.loadScript('web/' + file) })
@@ -65,6 +65,7 @@
         var state = new window.RdioStreamState(app).start()
         var renderer = new window.RdioStreamRenderer(container, store, state).mount()
         var shapes = new window.RdioStreamShapes(renderer.svg, store, renderer)
+        var scroller = new window.RdioStreamScroller(renderer.canvas, state, app).start()
         var editor = new window.RdioStreamEditor(renderer.canvas, store, renderer).attach()
 
         // A layout change rebuilds; a data change only rewrites text. The
@@ -85,6 +86,7 @@
 
         return function () {
             editor.detach()
+            scroller.stop()
             state.stop()
             store.destroy()
             renderer.destroy()

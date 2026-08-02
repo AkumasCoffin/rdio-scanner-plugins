@@ -97,6 +97,7 @@
         el.setAttribute('data-type', item.type)
         // The editor finds an item from a pointer event by walking up to this.
         el.setAttribute('data-id', item.id)
+        el.setAttribute('data-autoscroll', item.autoScroll ? '1' : '0')
 
         var content = document.createElement('div')
         content.className = 'item-content'
@@ -167,6 +168,7 @@
         el.classList.toggle('history', item.type === 'history')
         el.classList.toggle('textbox', item.type === 'text')
 
+        el.setAttribute('data-autoscroll', item.autoScroll ? '1' : '0')
         node.content.style.textAlign = item.align
 
         if (L.isFrame(item.type)) {
@@ -259,11 +261,14 @@
             node.el.style.display = showData ? '' : 'none'
             var showTitle = item.titleEnabled && this.titleVisible(item)
             node.title.style.display = showTitle ? '' : 'none'
-            node.title.textContent = this.titleTextOf(item)
+            setText(node, 'title', this.titleTextOf(item))
             node.title.style.color = this.titleColorOf(item)
 
             var transcript = this.state.displayCall && this.state.displayCall.transcript
-            node.value.textContent = transcript || '—'
+
+            // Same reason as below: the transcript scrolls in time with the call,
+            // and rewriting it unchanged would reset that every tick.
+            setText(node, 'value', transcript || '—')
             node.value.classList.toggle('placeholder', !transcript)
             return
         }
@@ -271,16 +276,31 @@
         var value = this.valueOf(item)
 
         node.value.style.display = showData ? '' : 'none'
-        node.value.textContent = value
+        setText(node, 'value', value)
 
         var titleWanted = item.titleEnabled && L.itemTitle(item.type) &&
             this.hasContent(item) && this.titleVisible(item)
 
         node.title.style.display = titleWanted ? '' : 'none'
         if (titleWanted) {
-            node.title.textContent = this.titleTextOf(item) + ': '
+            setText(node, 'title', this.titleTextOf(item) + ': ')
             node.title.style.color = this.titleColorOf(item)
         }
+    }
+
+    // Writes text only when it changed.
+    //
+    // Not an optimisation — a correctness fix. Assigning textContent replaces
+    // the text node, and the browser resets the container's scroll position when
+    // it does. Rewriting an unchanged value twice a second therefore pinned
+    // every marquee at zero: the scroller moved it, the next render put it back,
+    // and nothing ever scrolled. Found by measuring scrollTop in a browser after
+    // the marquee's opening pause and getting 0.
+    function setText(node, which, text) {
+        var key = which + 'Text'
+        if (node[key] === text) return
+        node[key] = text
+        node[which].textContent = text
     }
 
     Renderer.prototype.updateHistory = function (node, item) {
