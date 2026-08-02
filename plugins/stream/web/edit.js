@@ -757,6 +757,8 @@
                 action('Add vertical divider', function () { self.addDivider(only, 'v') })
                 action('Add horizontal divider', function () { self.addDivider(only, 'h') })
             }
+            if (only) action('Copy style', function () { self.copyStyle(only) })
+            if (self.copied) action('Paste style', function () { self.pasteStyle() })
             action('Delete', function () { self.removeSelected() })
             action('Bring to front', function () { self.reorder(true) })
             action('Send to back', function () { self.reorder(false) })
@@ -833,6 +835,31 @@
         if (panel.contains(document.activeElement)) return
 
         this.openProps(x, y)
+    }
+
+    // Everything visual, but not the element's identity, geometry or content.
+    // Pasting a style must not move an item, retype it, or overwrite the text
+    // someone wrote in it.
+    var STYLE_KEYS = [
+        'color', 'useLedColor', 'fontSize', 'fontFamily', 'bold', 'align',
+        'titleEnabled', 'titleColor', 'titleBold', 'titleUseLed', 'titleFontSize', 'titleFontFamily',
+        'hideOnCall', 'hideOnIdle', 'titleHideOnCall', 'titleHideOnIdle',
+        'autoScroll', 'histRowLines', 'histColLines', 'histLineWidth', 'histLineColor',
+        'borderWidth', 'innerWidth', 'cornerRadius', 'centerFill', 'centerColor', 'centerUseLed',
+        'middleFill', 'middleWidth', 'middleColor', 'middleUseLed',
+    ]
+
+    Editor.prototype.copyStyle = function (item) {
+        var style = {}
+        STYLE_KEYS.forEach(function (key) { style[key] = item[key] })
+        this.copied = style
+    }
+
+    Editor.prototype.pasteStyle = function () {
+        if (!this.copied) return
+
+        var self = this
+        this.selected.forEach(function (id) { self.store.updateItem(id, self.copied) })
     }
 
     Editor.prototype.reorder = function (toFront) {

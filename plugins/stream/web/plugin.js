@@ -54,6 +54,27 @@
             // An older server infers it from the path; nothing is lost.
         }
 
+        // Follower mode: the overlay mirrors whatever the main page is playing
+        // rather than driving playback itself, which is what makes a second
+        // window usable as a display. requestSyncState asks for the current
+        // state immediately, so an overlay opened mid-call is not blank until
+        // the next one.
+        try {
+            if (app.enableFollowerMode) app.enableFollowerMode()
+            if (app.requestSyncState) app.requestSyncState()
+        } catch (err) {
+            console.error('[stream] could not enter follower mode', err)
+        }
+
+        // Point the manifest at this page, so installing the overlay as an app
+        // opens the overlay and not the scanner. The plugin ships its own rather
+        // than using the webapp's, which goes away when the built-in overlay
+        // does — a manifest pointing at a file the server no longer has would
+        // break installing without breaking anything visible first.
+        var manifest = document.querySelector('link[rel="manifest"]')
+        var previousManifest = manifest ? manifest.getAttribute('href') : null
+        if (manifest) manifest.setAttribute('href', ctx.assets.url('web/stream.webmanifest'))
+
         // The display fonts, loaded only while the overlay is open.
         var fonts = document.createElement('link')
         fonts.rel = 'stylesheet'
@@ -87,6 +108,14 @@
         return function () {
             editor.detach()
             scroller.stop()
+
+            try {
+                if (app.disableFollowerMode) app.disableFollowerMode()
+            } catch (err) {
+                // Leaving the page tears the session down anyway.
+            }
+
+            if (manifest && previousManifest !== null) manifest.setAttribute('href', previousManifest)
             state.stop()
             store.destroy()
             renderer.destroy()
