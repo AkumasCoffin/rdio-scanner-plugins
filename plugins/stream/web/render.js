@@ -62,6 +62,7 @@
         this.canvas.style.backgroundColor = layout.bgColor
         this.canvas.style.setProperty('--stream-grid', layout.gridSize + 'px')
         this.canvas.classList.toggle('show-grid', !!layout.showGrid)
+        this.canvas.classList.toggle('move-mode', !!layout.moveMode)
 
         // Drop nodes for items that are gone.
         var seen = {}
@@ -94,12 +95,24 @@
         var el = document.createElement('div')
         el.className = 'rdio-stream-item'
         el.setAttribute('data-type', item.type)
+        // The editor finds an item from a pointer event by walking up to this.
+        el.setAttribute('data-id', item.id)
 
         var content = document.createElement('div')
         content.className = 'item-content'
         el.appendChild(content)
 
         var node = { el: el, content: content, item: item }
+
+        // Resize grip. Present always, shown only while editing — creating it on
+        // demand would mean rebuilding every item each time edit mode is
+        // toggled, which would also drop the current selection.
+        if (!L.isShape(item.type)) {
+            node.grip = document.createElement('span')
+            node.grip.className = 'rdio-stream-resize'
+            node.grip.title = 'Drag to resize'
+            el.appendChild(node.grip)
+        }
 
         if (item.type === 'history') {
             node.table = document.createElement('table')

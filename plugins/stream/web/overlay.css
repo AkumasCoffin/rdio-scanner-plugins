@@ -164,3 +164,153 @@
 .rdio-stream-item.big {
     letter-spacing: 0.01em;
 }
+
+/* --- EDIT MODE ---
+ *
+ * Everything below is scoped to .move-mode. None of it may ever be on screen
+ * while broadcasting, so every rule here starts from that class rather than
+ * relying on a flag being cleared.
+ */
+
+.rdio-stream-resize,
+.rdio-stream-guides,
+.rdio-stream-badge {
+    display: none;
+}
+
+.rdio-stream-root.move-mode .rdio-stream-item {
+    cursor: move;
+    outline: 1px dashed rgba(127, 127, 127, 0.4);
+}
+
+/* Borders become grabbable while editing so they can be moved from their empty
+   middle, but stay behind the readouts so an item on top is always reachable. */
+.rdio-stream-root.move-mode .rdio-stream-item.frame,
+.rdio-stream-root.move-mode .rdio-stream-item.shape {
+    pointer-events: auto;
+}
+
+/* Hover lifts an item and its grip above its neighbours. Borders are excluded:
+   raising one would cover everything inside it. */
+.rdio-stream-root.move-mode .rdio-stream-item:hover:not(.frame):not(.shape) {
+    z-index: 1000;
+}
+
+.rdio-stream-root.move-mode .rdio-stream-item.selected {
+    outline: 2px solid #38bdf8;
+    outline-offset: 1px;
+}
+
+.rdio-stream-root.move-mode .rdio-stream-resize {
+    display: block;
+    position: absolute;
+    right: -6px;
+    bottom: -6px;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: #38bdf8;
+    cursor: nwse-resize;
+    z-index: 1001;
+}
+
+.rdio-stream-root.move-mode .rdio-stream-guides {
+    display: block;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1500;
+}
+
+.rdio-stream-guide {
+    position: absolute;
+    background: #f97316;
+}
+
+.rdio-stream-guide.vertical {
+    top: 0;
+    bottom: 0;
+    width: 1px;
+}
+
+.rdio-stream-guide.horizontal {
+    left: 0;
+    right: 0;
+    height: 1px;
+}
+
+.rdio-stream-band {
+    position: absolute;
+    border: 1px solid #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    pointer-events: none;
+    z-index: 1400;
+}
+
+.rdio-stream-root.move-mode .rdio-stream-badge {
+    display: block;
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(2, 6, 23, 0.9);
+    border: 1px solid #38bdf8;
+    color: #e2e8f0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 2000;
+}
+
+.rdio-stream-menu {
+    position: absolute;
+    z-index: 2100;
+    min-width: 210px;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 4px;
+    border-radius: 8px;
+    background: rgba(2, 6, 23, 0.97);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65);
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: #f9fafb;
+    cursor: default;
+}
+
+.rdio-stream-menu .menu-section {
+    padding: 6px 10px 3px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #6b7280;
+}
+
+.rdio-stream-menu .menu-item {
+    display: block;
+    width: 100%;
+    padding: 5px 10px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.rdio-stream-menu .menu-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* A readout with data behind it that is not on the canvas — worth pointing at,
+   unlike decoration, which is absent because nobody added it. */
+.rdio-stream-menu .menu-item.missing {
+    color: #fdba74;
+}
