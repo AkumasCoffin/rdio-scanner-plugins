@@ -12,6 +12,11 @@ function publish() {
     var path = String(rdio.config.get('path') || 'stream').replace(/^\/+|\/+$/g, '')
 
     rdio.config.expose('streamPath', path || 'stream')
+
+    // The LCD shows the running version as its idle talkgroup name. The webapp
+    // reads that from its own bundle; a plugin is not rebuilt when rdio is, so
+    // it has to ask the server instead.
+    rdio.config.expose('rdioVersion', rdio.server.version)
 }
 
 rdio.on('startup', function () {

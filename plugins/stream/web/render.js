@@ -351,7 +351,7 @@
     Renderer.prototype.historyCell = function (call, key) {
         switch (key) {
             case 'time':
-                return call.dateTime ? formatTime(new Date(call.dateTime)) : ''
+                return call.dateTime ? formatTime(new Date(call.dateTime), this.state.timeFormat) : ''
             case 'system':
                 return (call.systemData && call.systemData.label) || String(call.system || '')
             case 'talkgroup':
@@ -368,7 +368,7 @@
 
         switch (item.type) {
             case 'text': return item.text
-            case 'clock': return formatTime(s.clock)
+            case 'clock': return formatTime(s.clock, s.timeFormat)
             case 'callProgress': return formatDuration(s.callProgress)
             case 'listeners': return String(s.listeners)
             case 'queue': return String(s.callQueue)
@@ -389,16 +389,33 @@
 
     function pad(n) { return n < 10 ? '0' + n : String(n) }
 
-    function formatTime(date) {
+    // Hours and minutes, no seconds, matching the LCD — which formats these with
+    // Angular's date pipe and a 'HH:mm' pattern, or 'h:mm a' when the server is
+    // set to 12-hour time. Showing seconds here made the clock wider than its
+    // box and pushed its own title out of view.
+    function formatTime(date, format) {
         if (!date || isNaN(date.getTime())) return ''
-        return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds())
+
+        var hours = date.getHours()
+        var minutes = pad(date.getMinutes())
+
+        if (format === 'h:mm a') {
+            var suffix = hours < 12 ? 'AM' : 'PM'
+            var twelve = hours % 12
+            if (twelve === 0) twelve = 12
+            return twelve + ':' + minutes + ' ' + suffix
+        }
+
+        return pad(hours) + ':' + minutes
     }
 
-    // The call timer is an elapsed duration, so it is built from UTC parts —
-    // reading local hours off a duration would show the timezone offset.
+    // The call timer is an elapsed duration, so it is built from UTC parts.
+    // Reading local hours off a duration shows the timezone offset instead of
+    // zero — the built-in overlay ran this through the same date pipe as the
+    // clock and is correct only where local time is UTC.
     function formatDuration(date) {
-        if (!date || isNaN(date.getTime())) return '00:00:00'
-        return pad(date.getUTCHours()) + ':' + pad(date.getUTCMinutes()) + ':' + pad(date.getUTCSeconds())
+        if (!date || isNaN(date.getTime())) return '00:00'
+        return pad(date.getUTCHours()) + ':' + pad(date.getUTCMinutes())
     }
 
     function formatDate(date) {

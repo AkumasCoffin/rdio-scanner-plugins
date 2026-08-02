@@ -14,7 +14,7 @@
 ;(function (root) {
     'use strict'
 
-    function State(app) {
+    function State(app, version) {
         this.app = app
 
         this.call = undefined
@@ -26,13 +26,21 @@
         this.listeners = 0
         this.callQueue = 0
 
-        this.callSystem = ''
-        this.callTag = ''
-        this.callTalkgroup = ''
-        this.callTalkgroupName = ''
-        this.callTalkgroupId = ''
-        this.callUnit = ''
+        // Idle placeholders, matching the LCD. The built-in overlay showed these
+        // between calls rather than going blank, and an overlay that empties
+        // itself the moment a call ends looks broken on air. The version string
+        // comes from the server rather than a bundled package.json, since a
+        // plugin is not rebuilt when rdio is.
+        this.callSystem = 'System'
+        this.callTag = 'Tag'
+        this.callTalkgroup = 'Talkgroup'
+        this.callTalkgroupName = version ? 'Rdio Scanner v' + version : 'Rdio Scanner'
+        this.callTalkgroupId = '0'
+        this.callUnit = '0'
         this.callDate = undefined
+
+        // 24-hour unless the server says otherwise, which is what the LCD does.
+        this.timeFormat = 'HH:mm'
 
         this.tempAvoid = 0
         this.avoided = false
@@ -87,7 +95,22 @@
     State.prototype.apply = function (ev) {
         if (!ev || typeof ev !== 'object') return
 
-        if (ev.config) this.config = ev.config
+        if (ev.config) {
+            this.config = ev.config
+            this.timeFormat = ev.config.time12hFormat ? 'h:mm a' : 'HH:mm'
+
+            // The LCD shows the running version as its idle talkgroup name.
+            if (ev.config.version && !this.call) {
+                this.callTalkgroupName = 'Rdio Scanner v' + ev.config.version
+            }
+        }
+
+        // The server sends its version separately from the config payload.
+        if (ev.version && !this.call) {
+            this.callTalkgroupName = 'Rdio Scanner v' + ev.version
+        }
+
+        if (typeof ev.auth === 'boolean') this.auth = ev.auth
         if (typeof ev.listeners === 'number') this.listeners = ev.listeners
         if (typeof ev.queue === 'number') this.callQueue = ev.queue
 

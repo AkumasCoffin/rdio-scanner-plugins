@@ -45,6 +45,13 @@ Identity and directories.
 - `dir — where this plugin's files live`
 - `dataDir — storage that survives updates`
 
+### `rdio.server`
+
+What this plugin is running inside.
+
+- `version — the running rdio version`
+- `apiVersion — the plugin API version this server implements`
+
 ### `rdio.log`
 
 Write to the server log. Appears under the Plugins category.

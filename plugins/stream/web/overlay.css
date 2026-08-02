@@ -157,12 +157,23 @@
     overflow-y: auto;
 }
 
-.rdio-stream-item .transcript-text.placeholder {
-    opacity: 0.35;
+/* Colour, size, font and weight come from the item's title settings, applied
+   inline; only layout belongs here. */
+.rdio-stream-item .transcript-label {
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
 }
 
-.rdio-stream-item.big {
-    letter-spacing: 0.01em;
+.rdio-stream-item .transcript-text {
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.rdio-stream-item .transcript-text.placeholder {
+    opacity: 0.4;
+    font-style: italic;
 }
 
 /* --- EDIT MODE ---
@@ -482,4 +493,87 @@
 
 .rdio-stream-divider.vertical {
     cursor: ew-resize;
+}
+/* --- START GATE ---
+ * A browser blocks audio until the page is clicked, and OBS captures the audio
+ * from this page, so the overlay has to be clicked before it is useful. Also the
+ * unlock prompt on a server that requires an access code.
+ */
+
+.rdio-stream-gate {
+    position: absolute;
+    inset: 0;
+    z-index: 2500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.92);
+    font-family: 'Roboto', sans-serif;
+}
+
+.rdio-stream-gate .gate-card {
+    padding: 28px 36px;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65);
+    text-align: center;
+    color: #f9fafb;
+}
+
+.rdio-stream-gate .gate-title {
+    margin: 0 0 16px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.rdio-stream-gate .gate-start {
+    cursor: pointer;
+    border: 0;
+    border-radius: 10px;
+    padding: 14px 28px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #ffffff;
+    background: linear-gradient(180deg, #f97316, #ea580c);
+    box-shadow: 0 6px 18px rgba(249, 115, 22, 0.4);
+}
+
+.rdio-stream-gate .gate-start:hover {
+    background: #ea580c;
+}
+
+.rdio-stream-gate .gate-hint {
+    margin: 14px 0 0;
+    max-width: 280px;
+    font-size: 13px;
+    color: #94a3b8;
+}
+
+.rdio-stream-gate form {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.rdio-stream-gate input {
+    padding: 8px 10px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 6px;
+    background: rgba(2, 6, 23, 0.6);
+    color: #f9fafb;
+    font: inherit;
+}
+
+.rdio-stream-gate button[type="submit"] {
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 6px;
+    background: #f97316;
+    color: #ffffff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
 }

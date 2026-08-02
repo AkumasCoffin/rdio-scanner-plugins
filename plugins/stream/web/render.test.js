@@ -70,28 +70,34 @@ test('the call timer is built from UTC, not local time', () => {
     const win = load()
     const { RdioStreamRenderer: R } = win
 
-    // A duration of 65 seconds. Reading local hours off a Date built from an
-    // elapsed millisecond count would show the timezone offset instead of 0 —
-    // the overlay would read "05:01:05" for a one-minute call anywhere east or
-    // west of UTC, and be right only in London.
-    assert.strictEqual(R.formatDuration(new Date(65 * 1000)), '00:01:05')
-    assert.strictEqual(R.formatDuration(new Date(0)), '00:00:00')
-    assert.strictEqual(R.formatDuration(new Date(3661 * 1000)), '01:01:01')
+    // Hours and minutes, matching the LCD — no seconds. Built from UTC parts
+    // because this is an elapsed duration: reading local hours off one shows
+    // the timezone offset instead of zero, which is what the built-in overlay
+    // does and is correct only where local time happens to be UTC.
+    assert.strictEqual(R.formatDuration(new Date(65 * 1000)), '00:01')
+    assert.strictEqual(R.formatDuration(new Date(0)), '00:00')
+    assert.strictEqual(R.formatDuration(new Date(3661 * 1000)), '01:01')
 })
 
 test('an invalid date renders as empty rather than NaN', () => {
     const { RdioStreamRenderer: R } = load()
 
-    assert.strictEqual(R.formatTime(new Date('nonsense')), '')
+    assert.strictEqual(R.formatTime(new Date('nonsense'), 'HH:mm'), '')
     assert.strictEqual(R.formatDate(new Date('nonsense')), '')
-    assert.strictEqual(R.formatDuration(new Date('nonsense')), '00:00:00')
+    assert.strictEqual(R.formatDuration(new Date('nonsense')), '00:00')
 })
 
 test('dates and times are zero padded', () => {
     const { RdioStreamRenderer: R } = load()
 
     assert.strictEqual(R.formatDate(new Date(2026, 0, 5)), '01/05')
-    assert.strictEqual(R.formatTime(new Date(2026, 0, 5, 9, 8, 7)), '09:08:07')
+    assert.strictEqual(R.formatTime(new Date(2026, 0, 5, 9, 8, 7), 'HH:mm'), '09:08')
+
+    // 12-hour, when the server is configured that way.
+    assert.strictEqual(R.formatTime(new Date(2026, 0, 5, 9, 8), 'h:mm a'), '9:08 AM')
+    assert.strictEqual(R.formatTime(new Date(2026, 0, 5, 13, 8), 'h:mm a'), '1:08 PM')
+    assert.strictEqual(R.formatTime(new Date(2026, 0, 5, 0, 8), 'h:mm a'), '12:08 AM')
+    assert.strictEqual(R.formatTime(new Date(2026, 0, 5, 12, 8), 'h:mm a'), '12:08 PM')
 })
 
 console.log('visibility')
@@ -169,6 +175,7 @@ test('each readout renders the field it names', () => {
     const win = load()
     const r = rendererWith(win, {
         clock: new Date(2026, 0, 2, 3, 4, 5),
+        timeFormat: 'HH:mm',
         callProgress: new Date(12 * 1000),
         listeners: 7,
         callQueue: 3,
@@ -184,8 +191,8 @@ test('each readout renders the field it names', () => {
         patched: false,
     })
 
-    assert.strictEqual(r.valueOf(item({ type: 'clock' })), '03:04:05')
-    assert.strictEqual(r.valueOf(item({ type: 'callProgress' })), '00:00:12')
+    assert.strictEqual(r.valueOf(item({ type: 'clock' })), '03:04')
+    assert.strictEqual(r.valueOf(item({ type: 'callProgress' })), '00:00')
     assert.strictEqual(r.valueOf(item({ type: 'listeners' })), '7')
     assert.strictEqual(r.valueOf(item({ type: 'queue' })), '3')
     assert.strictEqual(r.valueOf(item({ type: 'system' })), 'Countywide')
@@ -231,7 +238,7 @@ console.log('history')
 
 test('history cells read the same fields the table names', () => {
     const win = load()
-    const r = rendererWith(win, {})
+    const r = rendererWith(win, { timeFormat: 'HH:mm' })
 
     const call = {
         dateTime: new Date(2026, 0, 2, 3, 4, 5).toISOString(),
@@ -244,7 +251,7 @@ test('history cells read the same fields the table names', () => {
     assert.strictEqual(r.historyCell(call, 'system'), 'Countywide')
     assert.strictEqual(r.historyCell(call, 'talkgroup'), 'Dispatch')
     assert.strictEqual(r.historyCell(call, 'name'), 'Fire Dispatch')
-    assert.ok(/^\d{2}:\d{2}:\d{2}$/.test(r.historyCell(call, 'time')))
+    assert.ok(/^\d{2}:\d{2}$/.test(r.historyCell(call, 'time')), 'history times match the LCD format')
 })
 
 test('history falls back to ids when a call has no metadata', () => {
