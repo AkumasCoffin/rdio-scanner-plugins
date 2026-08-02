@@ -212,11 +212,11 @@ Publish an extension point of your own.
 
 | Point | Timeout | Notes |
 |---|---|---|
-| `call.receive` | default | A call arrived, before anything has been decided about it. |
-| `call.accept` | default | Whether to accept the call at all. Veto to discard it. |
-| `call.duplicate` | default | Whether the call is a duplicate of one already stored. |
-| `call.convert` | default | Audio conversion. Override to replace ffmpeg entirely. |
-| `call.store` | default | Last chance before storage: modify, replace the audio, or drop. |
+| `call.receive` | 5s | A call arrived, before its system or talkgroup has been resolved. Carries audio. Rewrite `system` or `talkgroup` to reroute it, or return `{drop: true}` to discard it before any work is spent. |
+| `call.accept` | 1s | The call is fully resolved and passed the blacklists. Return `{drop: true}` to discard it. Metadata only, no audio. |
+| `call.duplicate` | 1s | Fires only once rdio has already decided the call is a duplicate. Reads inverted from the others: returning nothing leaves the rejection standing, and only `{keep: true}` overrules it — so observing this point cannot accidentally disable duplicate detection. |
+| `call.convert` | default | Audio conversion. Override to replace ffmpeg entirely; return the new `audio`, and `audioType` if it changed. The only point with no fallback, so a failure here stores the call unconverted. |
+| `call.store` | default | Last chance before the write. Carries audio, so this is where processing that must be persisted belongs — normalisation, trimming, re-encoding — as well as a final `{drop: true}`. |
 | `call.stored` | default | The call has an id. Where most work belongs. |
 
 ### Delivery
