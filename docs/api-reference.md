@@ -205,7 +205,7 @@ Publish an extension point of your own.
 | `shutdown` | default | The server is stopping. Best effort. |
 | `tick` | default | Hourly, alongside the built-in maintenance run. |
 | `config.changed` | default | This plugin's settings were saved. |
-| `client.connect` | default | A listener connected. |
+| `client.connect` | default | A listener connected. Fires once the client is registered, which is after its first configuration has been sent — use `client.config` to change what that first payload contains. |
 | `client.disconnect` | default | A listener disconnected. |
 
 ### Ingest
@@ -223,12 +223,12 @@ Publish an extension point of your own.
 
 | Point | Timeout | Notes |
 |---|---|---|
-| `call.delay` | default | How long to hold the call before listeners see it. |
-| `call.emit` | 250ms | Per listener, before delivery. Redact or withhold. |
-| `call.payload` | 250ms | The JSON shape a client receives. |
-| `call.emitted` | default | The call has been sent to listeners. |
-| `downstream.send` | default | Per downstream, before forwarding. |
-| `client.config` | 250ms | The configuration payload each client receives. |
+| `call.delay` | default | How long to hold a call before listeners see it. Carries `delaySeconds`, what rdio's own per-system and per-talkgroup settings produced; return a different number to override it, or 0 to release the call at once. A veto here means "do not hold it", not "do not send it" — dropping is what the ingest points are for. |
+| `call.emit` | 250ms | Runs once per listener per call, so it is the hottest point in the server and has a 250ms limit. The native access and livefeed checks have already passed by this point. Return `{drop: true}` to withhold the call from this listener alone. Carries a `client` describing the recipient. |
+| `call.payload` | 250ms | The JSON a call is delivered as. Runs once per call rather than once per listener, because the payload is the same for everyone receiving it — use `rdio.ws` if you genuinely need to say something different to one client. Returned keys are merged as extra fields, so a plugin cannot remove the id or the audio and leave the webapp with a call it cannot play. |
+| `call.emitted` | default | A call finished going out to live listeners. Carries `recipients`, how many received it. |
+| `downstream.send` | default | Runs per downstream per call, before forwarding. Return `{drop: true}` to hold a call back from one downstream without affecting the others or the local listeners. |
+| `client.config` | 250ms | The configuration payload one client receives, in `config`. Runs on connect and on reconfiguration, not per call. This is where a theme ships its settings, and where anything varying by listener reaches the webapp. `groups`, `systems` and `tags` are restored if a result drops them, since a client without those has nothing to show and no way to say why. |
 
 ### Access
 
