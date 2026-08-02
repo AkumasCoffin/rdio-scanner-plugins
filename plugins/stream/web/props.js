@@ -90,6 +90,12 @@
     Props.prototype.close = function () {
         if (this.panel && this.panel.parentNode) this.panel.parentNode.removeChild(this.panel)
         this.panel = null
+
+        // Shape handles are hidden while this panel is open so they cannot sit
+        // on top of it, and nothing else redraws them until the layout next
+        // changes. Without this they stayed gone after the panel was closed with
+        // its × — the only route out that does not touch the layout.
+        if (this.onClose) this.onClose()
     }
 
     Props.prototype.isOpen = function () {

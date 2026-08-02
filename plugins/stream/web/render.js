@@ -369,10 +369,10 @@
         switch (item.type) {
             case 'text': return item.text
             case 'clock': return formatTime(s.clock, s.timeFormat)
-            case 'callProgress': return formatDuration(s.callProgress)
+            case 'callProgress': return formatTime(s.callProgress, s.timeFormat)
             case 'listeners': return String(s.listeners)
             case 'queue': return String(s.callQueue)
-            case 'delay': return s.queueDelayLabel || '0:00'
+            case 'delay': return s.formatDelay(s.queueTime) || '0:00'
             case 'system': return s.callSystem
             case 'tag': return s.callTag
             case 'talkgroup': return s.callTalkgroup
@@ -409,22 +409,12 @@
         return pad(hours) + ':' + minutes
     }
 
-    // The call timer is an elapsed duration, so it is built from UTC parts.
-    // Reading local hours off a duration shows the timezone offset instead of
-    // zero — the built-in overlay ran this through the same date pipe as the
-    // clock and is correct only where local time is UTC.
-    function formatDuration(date) {
-        if (!date || isNaN(date.getTime())) return '00:00'
-        return pad(date.getUTCHours()) + ':' + pad(date.getUTCMinutes())
-    }
-
     function formatDate(date) {
         if (!date || isNaN(date.getTime())) return ''
         return pad(date.getMonth() + 1) + '/' + pad(date.getDate())
     }
 
     Renderer.formatTime = formatTime
-    Renderer.formatDuration = formatDuration
     Renderer.formatDate = formatDate
 
     root.RdioStreamRenderer = Renderer

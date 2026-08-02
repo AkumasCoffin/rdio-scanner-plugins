@@ -68,13 +68,17 @@
 
                 if (maxV <= 0 || !call || !transcript) return
 
+                // The call's decoded length. This is what getCallDuration is for
+                // — a constant per call — and it is the denominator, never the
+                // position.
                 var duration = self.app.getCallDuration ? self.app.getCallDuration(call.id) : 0
                 if (!duration || duration <= 0) return
 
-                // Tied to playback position, not to the clock: a transcript that
-                // scrolled on its own would drift out of step with the audio.
-                var elapsed = self.state.callProgress.getTime() / 1000
-                var top = Math.max(0, Math.min(1, elapsed / duration)) * maxV
+                // Position over total, so the transcript reaches the bottom as
+                // the call ends. Reading the position from getCallDuration too
+                // made this ratio permanently one, and the transcript jumped to
+                // the bottom the moment it appeared.
+                var top = Math.max(0, Math.min(1, (self.state.callTime || 0) / duration)) * maxV
 
                 writes.push(function () { content.scrollTop = top })
                 return

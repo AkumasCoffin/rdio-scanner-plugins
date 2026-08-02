@@ -66,6 +66,8 @@
     // The badge is the only thing telling someone the overlay is editable, and
     // it must never be on screen while broadcasting.
     Editor.prototype.syncBadge = function () {
+        this.reconcile()
+
         if (this.badge) this.badge.style.display = this.editing() ? '' : 'none'
 
         // Leaving edit mode must take the panel with it; it is chrome, and
@@ -78,6 +80,22 @@
         }
 
         this.drawHandles()
+    }
+
+    // Drops ids that no longer exist. The layout can be replaced wholesale by
+    // another window over the BroadcastChannel, and a selection pointing at a
+    // deleted item is what made the context menu throw.
+    Editor.prototype.reconcile = function () {
+        var live = {}
+        this.store.getLayout().items.forEach(function (i) { live[i.id] = true })
+
+        var dropped = false
+        this.selected.forEach(function (id) { if (!live[id]) dropped = true })
+        if (!dropped) return
+
+        var kept = []
+        this.selected.forEach(function (id) { if (live[id]) kept.push(id) })
+        this.setSelection(kept)
     }
 
     Editor.prototype.detach = function () {
@@ -688,8 +706,15 @@
 
     Editor.prototype.removeSelected = function () {
         var gone = this.selected
-        this.store.setItems(this.store.getLayout().items.filter(function (i) { return !gone.has(i.id) }))
+        var kept = this.store.getLayout().items.filter(function (i) { return !gone.has(i.id) })
+
+        // Cleared first. setItems emits synchronously, and the properties panel
+        // rebuilds from the selection during that emit — with a stale one it
+        // found no items and silently became the Canvas panel.
         this.setSelection([])
+        if (this.props) this.props.close()
+
+        this.store.setItems(kept)
     }
 
     // --- context menu ------------------------------------------------------
@@ -749,10 +774,13 @@
         }
 
         if (this.selected.size) {
-            section(this.selected.size === 1 ? L.itemLabel(this.find(Array.from(this.selected)[0]).type)
-                : this.selected.size + ' selected')
-            action('Properties…', function () { self.openProps(clientX - rect.left, clientY - rect.top) })
             var only = self.selected.size === 1 ? self.find(Array.from(self.selected)[0]) : null
+
+            // Null-safe: an id can outlive its item when another window deletes
+            // it over the layout channel, and dereferencing it here threw and
+            // left edit mode with no working context menu.
+            section(only ? L.itemLabel(only.type) : self.selected.size + ' selected')
+            action('Properties…', function () { self.openProps(clientX - rect.left, clientY - rect.top) })
             if (only && only.type === 'shape') {
                 action('Add vertical divider', function () { self.addDivider(only, 'v') })
                 action('Add horizontal divider', function () { self.addDivider(only, 'h') })
@@ -785,9 +813,11 @@
         })
 
         section('Canvas')
-        var layout = this.store.getLayout()
-        action(layout.showGrid ? 'Hide grid' : 'Show grid', function () {
-            self.store.update({ showGrid: !layout.showGrid })
+        action(this.store.getLayout().showGrid ? 'Hide grid' : 'Show grid', function () {
+            // Read at click time, not when the menu was built: the layout can
+            // change underneath an open menu and the toggle would then write
+            // back a stale value and appear to do nothing.
+            self.store.update({ showGrid: !self.store.getLayout().showGrid })
         })
         action('Leave edit mode', function () { self.store.update({ moveMode: false }) })
         action('Reset to defaults', function () {
@@ -812,7 +842,11 @@
     }
 
     Editor.prototype.openProps = function (x, y) {
-        if (!this.props) this.props = new root.RdioStreamProps(this.canvas, this.store)
+        if (!this.props) {
+            this.props = new root.RdioStreamProps(this.canvas, this.store)
+            // Closing the panel by any route has to bring the shape handles back.
+            this.props.onClose = this.drawHandles.bind(this)
+        }
 
         var self = this
         var items = this.store.getLayout().items.filter(function (i) { return self.selected.has(i.id) })

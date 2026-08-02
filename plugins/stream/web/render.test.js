@@ -66,17 +66,20 @@ function test(name, fn) {
 
 console.log('formatting')
 
-test('the call timer is built from UTC, not local time', () => {
+test('the call timer is a moment in the call, not an elapsed duration', () => {
     const win = load()
-    const { RdioStreamRenderer: R } = win
+    const state = new win.RdioStreamState({ event: { subscribe: () => ({}) } })
 
-    // Hours and minutes, matching the LCD — no seconds. Built from UTC parts
-    // because this is an elapsed duration: reading local hours off one shows
-    // the timezone offset instead of zero, which is what the built-in overlay
-    // does and is correct only where local time happens to be UTC.
-    assert.strictEqual(R.formatDuration(new Date(65 * 1000)), '00:01')
-    assert.strictEqual(R.formatDuration(new Date(0)), '00:00')
-    assert.strictEqual(R.formatDuration(new Date(3661 * 1000)), '01:01')
+    // The LCD shows the wall-clock time of the audio currently playing: the
+    // call's own timestamp plus the playback position. Reading it as a duration
+    // was wrong twice over — the value AND the meaning — and it came from
+    // getCallDuration, which returns the call's total length rather than how
+    // far into it playback has reached.
+    state.apply({ call: { id: 1, dateTime: new Date(2026, 0, 2, 10, 30, 0).toISOString(), system: 1, talkgroup: 2 } })
+    state.apply({ time: 90 })
+
+    assert.strictEqual(win.RdioStreamRenderer.formatTime(state.callProgress, 'HH:mm'), '10:31',
+        'ninety seconds into a call recorded at 10:30 reads 10:31')
 })
 
 test('an invalid date renders as empty rather than NaN', () => {
@@ -84,7 +87,6 @@ test('an invalid date renders as empty rather than NaN', () => {
 
     assert.strictEqual(R.formatTime(new Date('nonsense'), 'HH:mm'), '')
     assert.strictEqual(R.formatDate(new Date('nonsense')), '')
-    assert.strictEqual(R.formatDuration(new Date('nonsense')), '00:00')
 })
 
 test('dates and times are zero padded', () => {
@@ -176,7 +178,9 @@ test('each readout renders the field it names', () => {
     const r = rendererWith(win, {
         clock: new Date(2026, 0, 2, 3, 4, 5),
         timeFormat: 'HH:mm',
-        callProgress: new Date(12 * 1000),
+        callProgress: new Date(2026, 0, 2, 3, 4, 5),
+        queueTime: 75,
+        formatDelay: win.RdioStreamState.prototype.formatDelay,
         listeners: 7,
         callQueue: 3,
         callSystem: 'Countywide',
@@ -192,7 +196,8 @@ test('each readout renders the field it names', () => {
     })
 
     assert.strictEqual(r.valueOf(item({ type: 'clock' })), '03:04')
-    assert.strictEqual(r.valueOf(item({ type: 'callProgress' })), '00:00')
+    assert.strictEqual(r.valueOf(item({ type: 'callProgress' })), '03:04')
+    assert.strictEqual(r.valueOf(item({ type: 'delay' })), '1:15', 'the delay readout was hard-wired to 0:00')
     assert.strictEqual(r.valueOf(item({ type: 'listeners' })), '7')
     assert.strictEqual(r.valueOf(item({ type: 'queue' })), '3')
     assert.strictEqual(r.valueOf(item({ type: 'system' })), 'Countywide')
@@ -280,6 +285,62 @@ test('the last call stays on screen once it ends', () => {
     assert.strictEqual(state.callSystem, 'A')
 })
 
+test('the playback position comes from the event stream, not from the call length', () => {
+    const win = load()
+
+    // getCallDuration returns the call's decoded length — a constant. Using it
+    // as the position broke three things at once: the timer sat at the finish
+    // from the first frame, the unit readout jumped to whoever keyed up last,
+    // and the transcript scrolled straight to the bottom because position over
+    // total was always one. The position arrives as `time`.
+    const state = new win.RdioStreamState({
+        event: { subscribe: () => ({}) },
+        getCallDuration: () => 300,
+    })
+
+    const call = {
+        id: 1, system: 1, talkgroup: 2,
+        dateTime: new Date(2026, 0, 2, 10, 0, 0).toISOString(),
+        sources: [{ src: 100, pos: 0 }, { src: 200, pos: 120 }],
+        systemData: { units: [{ id: 100, label: 'ENGINE 41' }, { id: 200, label: 'MEDIC 7' }] },
+    }
+
+    state.apply({ call })
+    assert.strictEqual(state.callTime, 0, 'a new call starts at the beginning')
+    assert.strictEqual(state.callUnit, 'ENGINE 41')
+
+    state.apply({ time: 130 })
+    assert.strictEqual(state.callTime, 130)
+    assert.strictEqual(state.callUnit, 'MEDIC 7', 'the unit readout follows the position')
+
+    // A five minute call played 130 seconds in is not at its end.
+    assert.ok(state.callTime / 300 < 0.5, 'the scroll ratio must be a fraction, not one')
+})
+
+test('a new call resets the position even if its first time has not arrived', () => {
+    const win = load()
+    const state = new win.RdioStreamState({ event: { subscribe: () => ({}) } })
+
+    state.apply({ call: { id: 1, system: 1, talkgroup: 2 } })
+    state.apply({ time: 45 })
+    assert.strictEqual(state.callTime, 45)
+
+    // Otherwise the next call would open partway through, with the transcript
+    // already scrolled and the wrong unit showing.
+    state.apply({ call: { id: 2, system: 1, talkgroup: 2 } })
+    assert.strictEqual(state.callTime, 0)
+})
+
+test('the delay readout is empty rather than zero when there is no delay', () => {
+    const win = load()
+    const format = win.RdioStreamState.prototype.formatDelay
+
+    assert.strictEqual(format(0), '')
+    assert.strictEqual(format(-5), '')
+    assert.strictEqual(format(75), '1:15')
+    assert.strictEqual(format(3661), '1:01:01')
+})
+
 test('a transcript arriving late is patched into the call on screen', () => {
     const win = load()
     const state = new win.RdioStreamState({ event: { subscribe: () => ({}) } })
@@ -318,16 +379,21 @@ test('an unknown unit id shows the id rather than nothing', () => {
     assert.strictEqual(state.unitFor(call, 0), '555')
 })
 
-test('history keeps the most recent calls, newest first', () => {
+test('history holds the calls before the current one, once each', () => {
     const win = load()
     const state = new win.RdioStreamState({ event: { subscribe: () => ({}) } })
 
     for (let i = 1; i <= 9; i++) {
+        // Twice each, as the service emits while decoding and again on play.
+        state.apply({ call: { id: i, system: 1, talkgroup: 2 } })
         state.apply({ call: { id: i, system: 1, talkgroup: 2 } })
     }
 
     assert.strictEqual(state.callHistory.length, 6, 'the table is bounded')
-    assert.strictEqual(state.callHistory[0].id, 9, 'newest first')
+    assert.strictEqual(state.callHistory[0].id, 8, 'newest first, and never the call now playing')
+
+    const ids = state.callHistory.map((c) => c.id)
+    assert.strictEqual(new Set(ids).size, ids.length, 'a call appears once, however many times it was emitted')
 })
 
 console.log('')
