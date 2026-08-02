@@ -1,0 +1,22 @@
+{
+  "id": "stream",
+  "name": "Stream Overlay",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "The OBS stream overlay: a configurable canvas of readouts, frames and the transcript, at /stream.",
+  "author": "Rdio Scanner",
+  "license": "GPL-3.0",
+  "homepage": "https://github.com/AkumasCoffin/rdio-scanner-plugins",
+  "minServerVersion": "6.14.0-beta.1",
+  "web": "web/plugin.js",
+  "config": [
+    {
+      "key": "path",
+      "type": "text",
+      "label": "Page address",
+      "help": "Where the overlay lives, relative to the server root. Leave as 'stream' unless you have a reason to move it — existing OBS browser sources point at /stream.",
+      "default": "stream",
+      "maxLength": 64
+    }
+  ]
+}
