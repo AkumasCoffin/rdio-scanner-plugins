@@ -10,14 +10,20 @@ Install from the plugin repository, enable it, and set a provider and API key in
 the plugin's settings. Groq and OpenAI are both Whisper-compatible; a self-hosted
 Whisper endpoint works too.
 
+Each provider keeps its own base URL, key and model, and the settings form shows
+only the selected provider's three. Switching provider hides the others rather
+than clearing them, so you can move between providers without re-entering
+credentials.
+
 Upgrading from a server that had transcription built in needs nothing: the
 transcripts already in `calls.transcript` are migrated into this plugin's tables
 on first start, verified by count, and the plugin is installed and enabled
-automatically.
+automatically. The old transcription settings — including the API keys — are
+carried across under the plugin's own names at the same time.
 
-Several API keys can be given at once. They are used in rotation, and a key that
-comes back rate-limited is set aside until its retry window passes rather than
-being hammered.
+Several API keys can be given at once, separated by commas, semicolons or
+newlines. They are used in rotation, and a key that comes back rate-limited is
+set aside until its retry window passes rather than being hammered.
 
 ## What other plugins can do with it
 

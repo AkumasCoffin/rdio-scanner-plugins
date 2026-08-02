@@ -95,9 +95,31 @@ Each entry in `config` becomes one field in the admin form.
 | `maxLength` | For `text` and `textarea`; renders a character counter. |
 | `required` | Blocks saving when empty. |
 | `placeholder` | Input placeholder. |
+| `showIf` | `{ "key": "otherField", "equals": [...] }` — show this field only while another one holds one of those values. |
 
-`password` fields are write-only in the admin panel — stored values are never sent back to the
-browser.
+`password` fields are write-only in the admin panel — the stored value is never sent back to the
+browser. The form shows a filled placeholder when one is set, and an empty box means *leave it
+alone*: saving a blank password keeps whatever was already stored, so clearing a secret from the UI
+alone is not possible by design. A secret that a person needs to read back — an API key they may
+have to check or extend — is better declared `text` or `textarea`.
+
+### Conditional fields
+
+`showIf` is presentation only. A hidden field keeps its stored value and is still saved, so a
+manifest can hold one set of credentials per provider and show only the relevant ones:
+
+```json
+{ "key": "provider", "type": "select", "label": "Provider", "default": "groq",
+  "options": [{ "value": "groq", "label": "Groq" }, { "value": "openai", "label": "OpenAI" }] },
+{ "key": "groqApiKey", "type": "textarea", "label": "Groq — API key(s)",
+  "showIf": { "key": "provider", "equals": ["groq"] } },
+{ "key": "openaiApiKey", "type": "textarea", "label": "OpenAI — API key(s)",
+  "showIf": { "key": "provider", "equals": ["openai"] } }
+```
+
+Switching provider therefore hides the other's key rather than discarding it. The condition may name
+a field declared later in the list, but not the field itself, and the named key must exist — a typo
+fails the manifest at install rather than hiding the field silently forever.
 
 Values are read at runtime with `rdio.config.get(key)`. Configuration lives in the plugin's own table
 and **survives uninstall**.
