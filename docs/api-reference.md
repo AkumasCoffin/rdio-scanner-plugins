@@ -128,6 +128,16 @@ Hashing and encoding, which JavaScript does not provide.
 - `randomBytes(n)`
 - `uuid()`
 
+### `rdio.audio`
+
+Decode, analyse and re-encode call audio. Needs ffmpeg installed.
+
+- `probe(data) — duration, codec, sample rate, channels`
+- `decode(data, {sampleRate, channels}) — 16-bit PCM as an Int16Array`
+- `encode(samples, {sampleRate, channels, format})`
+- `convert(data, {format, bitrate, sampleRate, normalize, filter})`
+- `goertzel(samples, frequencies, {sampleRate, windowSize}) — energy per window, for tone detection`
+
 ### `rdio.http`
 
 Outbound requests, including multipart uploads.
