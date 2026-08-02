@@ -21,8 +21,14 @@ operations (HTTP, database) return promises and resolve back onto your event loo
 ```js
 rdio.plugin.id       // "hello-world"
 rdio.plugin.version  // "1.0.0"
-rdio.plugin.dataDir  // absolute path to this plugin's private directory
+rdio.plugin.dir      // where this plugin's own files live
+rdio.plugin.dataDir  // where to keep anything that must survive an update
 ```
+
+Write to `dataDir`, never to `dir`. Updating a plugin removes and rewrites its
+file directory, so anything stored beside the plugin's own code is lost. The
+data directory is untouched by both update and uninstall — only the admin
+panel's explicit purge clears it.
 
 ## `rdio.log(level, message)`
 
