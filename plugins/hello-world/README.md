@@ -12,6 +12,7 @@ It counts how many calls each talkgroup has produced and shows the running count
 | Config schema rendered by the admin panel | `plugin.json` → `config` |
 | A plugin-owned table | `plugin.json` → `tables` |
 | Reacting to calls | `main.js` → `rdio.on('call.stored', …)` |
+| **Changing** a call rather than watching it | `main.js` → `rdio.filter('call.store', …)` |
 | Reading and writing plugin tables | `main.js` → `rdio.db` |
 | A custom websocket command, both directions | `main.js` → `rdio.ws`, `web/plugin.js` → `ctx.ws` |
 | An HTTP endpoint | `main.js` → `rdio.routes.register` |

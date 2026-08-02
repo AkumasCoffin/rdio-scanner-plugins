@@ -31,26 +31,37 @@ explicit "purge" action.
 ```
 plugins/
   <plugin-id>/
-    plugin.json      manifest — id, version, config schema, tables, permissions
+    plugin.json      manifest — id, version, config schema, tables
     main.js          backend entry point, runs inside Rdio Scanner
     web/plugin.js    frontend entry point, loaded by the webapp at runtime
     README.md        plugin documentation
 docs/
-  manifest.md        plugin.json reference
-  plugin-api.md      backend (server-side) API reference
-  frontend-api.md    frontend (webapp) API reference
+  writing-a-plugin.md   start here
+  api-reference.md      every extension point and capability (generated)
+  frontend-api.md       browser side: slots, pages, ctx.app, theming
+  manifest.md           plugin.json in full
+  theme-contract.md     CSS custom properties a theme sets (generated)
 ```
 
 ## Writing a plugin
 
-Start with [`docs/manifest.md`](docs/manifest.md), then the API references. In short:
+**Start with [`docs/writing-a-plugin.md`](docs/writing-a-plugin.md)** — the mental model, and a
+working plugin in two files. In short:
 
 - **Backend** code is JavaScript, run in-process by an embedded interpreter. One artifact works on
   every platform Rdio Scanner supports — there is nothing to compile and no per-platform builds.
 - **Frontend** code is plain JavaScript loaded by the webapp at runtime. It is not Angular, and it
   does not require rebuilding the webapp.
+- Rdio Scanner calls out to plugins at named **extension points**, and you register against one with
+  one of four verbs — watch it, change it, replace it, or supply something the server lacks.
 - Each plugin gets **its own database tables**, created on install and namespaced to the plugin.
+  Settings survive uninstalling.
 - Plugins declare their configuration; the admin panel renders the form for you.
+- There are **no permissions**. Every capability is available to every plugin; trust is decided once,
+  at install.
+
+[`plugins/hello-world`](plugins/hello-world) is a small complete plugin worth reading before your
+first one.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for submitting a plugin to this repository.
 
