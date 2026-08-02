@@ -16,7 +16,7 @@
 
             // Parts are loaded by the entry rather than bundled, so the source
             // stays readable and the plugin needs no build step to install.
-            var parts = ['layout.js', 'store.js', 'state.js', 'render.js', 'edit.js']
+            var parts = ['layout.js', 'store.js', 'state.js', 'render.js', 'props.js', 'edit.js']
 
             var loading = parts.reduce(function (chain, file) {
                 return chain.then(function () { return ctx.assets.loadScript('web/' + file) })

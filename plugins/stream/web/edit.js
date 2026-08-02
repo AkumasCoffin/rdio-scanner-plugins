@@ -63,6 +63,15 @@
     // it must never be on screen while broadcasting.
     Editor.prototype.syncBadge = function () {
         if (this.badge) this.badge.style.display = this.editing() ? '' : 'none'
+
+        // Leaving edit mode must take the panel with it; it is chrome, and
+        // chrome on air is the failure that matters for an overlay.
+        if (!this.editing()) {
+            this.closeMenu()
+            if (this.props) this.props.close()
+        } else {
+            this.refreshProps()
+        }
     }
 
     Editor.prototype.detach = function () {
@@ -72,6 +81,7 @@
         window.removeEventListener('pointermove', this.boundMove)
         window.removeEventListener('pointerup', this.boundUp)
         this.closeMenu()
+        if (this.props) this.props.close()
     }
 
     Editor.prototype.editing = function () {
@@ -501,10 +511,15 @@
         }
 
         if (this.selected.size) {
-            section(this.selected.size + ' selected')
+            section(this.selected.size === 1 ? L.itemLabel(this.find(Array.from(this.selected)[0]).type)
+                : this.selected.size + ' selected')
+            action('Properties…', function () { self.openProps(clientX - rect.left, clientY - rect.top) })
             action('Delete', function () { self.removeSelected() })
             action('Bring to front', function () { self.reorder(true) })
             action('Send to back', function () { self.reorder(false) })
+        } else {
+            section('Canvas')
+            action('Canvas properties…', function () { self.openProps(clientX - rect.left, clientY - rect.top) })
         }
 
         section('Add')
@@ -548,6 +563,32 @@
         var box = menu.getBoundingClientRect()
         if (box.right > rect.right) menu.style.left = (rect.width - box.width - 4) + 'px'
         if (box.bottom > rect.bottom) menu.style.top = (rect.height - box.height - 4) + 'px'
+    }
+
+    Editor.prototype.openProps = function (x, y) {
+        if (!this.props) this.props = new root.RdioStreamProps(this.canvas, this.store)
+
+        var self = this
+        var items = this.store.getLayout().items.filter(function (i) { return self.selected.has(i.id) })
+
+        this.props.open(items, x, y)
+    }
+
+    // The panel reads values from the layout when it opens, so a change made
+    // elsewhere — a drag, another window over the layout channel — would leave
+    // stale numbers in its boxes. Rebuilt on change, but only while it is open.
+    Editor.prototype.refreshProps = function () {
+        if (!this.props || !this.props.isOpen()) return
+
+        var panel = this.props.panel
+        var x = parseFloat(panel.style.left) || 0
+        var y = parseFloat(panel.style.top) || 0
+
+        // Never while someone is typing into it — reopening would move focus and
+        // discard a half-entered value.
+        if (panel.contains(document.activeElement)) return
+
+        this.openProps(x, y)
     }
 
     Editor.prototype.reorder = function (toFront) {

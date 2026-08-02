@@ -314,3 +314,118 @@
 .rdio-stream-menu .menu-item.missing {
     color: #fdba74;
 }
+
+/* --- PROPERTIES PANEL --- */
+
+.rdio-stream-props {
+    position: absolute;
+    z-index: 2200;
+    width: 300px;
+    max-height: 78vh;
+    overflow-y: auto;
+    padding: 6px;
+    border-radius: 8px;
+    background: rgba(2, 6, 23, 0.97);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65);
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    color: #f9fafb;
+    cursor: default;
+}
+
+.rdio-stream-props .props-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 6px 8px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.rdio-stream-props .props-close {
+    border: 0;
+    background: transparent;
+    color: #a1a5b6;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.rdio-stream-props .props-group {
+    margin-top: 6px;
+    padding: 4px 6px 2px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #6b7280;
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.rdio-stream-props .props-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+}
+
+.rdio-stream-props .props-label {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.rdio-stream-props .props-input {
+    flex: 0 0 130px;
+    max-width: 130px;
+    padding: 3px 5px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.6);
+    color: #f9fafb;
+    font: inherit;
+}
+
+.rdio-stream-props input[type="checkbox"].props-input {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+}
+
+.rdio-stream-props input[type="color"].props-input {
+    padding: 0;
+    height: 22px;
+}
+
+/* A field whose value differs across the selection. Editing it sets them all,
+   so the box showing one item's value would otherwise be quietly misleading. */
+.rdio-stream-props .props-row.mixed .props-label::after {
+    content: ' (mixed)';
+    color: #fdba74;
+}
+
+.rdio-stream-props .props-col {
+    gap: 5px;
+}
+
+.rdio-stream-props .props-coltitle {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 2px 4px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.6);
+    color: #f9fafb;
+    font: inherit;
+}
+
+.rdio-stream-props .props-colsize {
+    flex: 0 0 52px;
+    padding: 2px 4px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.6);
+    color: #f9fafb;
+    font: inherit;
+}
