@@ -429,3 +429,57 @@
     color: #f9fafb;
     font: inherit;
 }
+/* Shapable-border editing handles. Positioned from the geometry they edit, so
+   they are rebuilt whenever the layout changes. */
+
+.rdio-stream-handles {
+    display: none;
+}
+
+.rdio-stream-root.move-mode .rdio-stream-handles {
+    display: block;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1600;
+}
+
+.rdio-stream-vertex,
+.rdio-stream-edge,
+.rdio-stream-divider {
+    position: absolute;
+    pointer-events: auto;
+    transform: translate(-50%, -50%);
+}
+
+.rdio-stream-vertex {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #38bdf8;
+    border: 1px solid rgba(2, 6, 23, 0.9);
+    cursor: grab;
+}
+
+/* Edge midpoints are smaller and dimmer than corners: they are the thing you
+   reach for on purpose, not the thing you hit by accident while grabbing a
+   corner next to them. */
+.rdio-stream-edge {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(56, 189, 248, 0.45);
+    cursor: copy;
+}
+
+.rdio-stream-divider {
+    width: 9px;
+    height: 9px;
+    background: #f97316;
+    border: 1px solid rgba(2, 6, 23, 0.9);
+    cursor: ns-resize;
+}
+
+.rdio-stream-divider.vertical {
+    cursor: ew-resize;
+}

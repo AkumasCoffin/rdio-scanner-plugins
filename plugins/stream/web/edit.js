@@ -47,6 +47,10 @@
         this.guides.className = 'rdio-stream-guides'
         this.canvas.appendChild(this.guides)
 
+        this.handles = document.createElement('div')
+        this.handles.className = 'rdio-stream-handles'
+        this.canvas.appendChild(this.handles)
+
         this.badge = document.createElement('div')
         this.badge.className = 'rdio-stream-badge'
         this.badge.textContent = 'EDIT MODE — drag to move · corner to resize · right-click to edit · ' +
@@ -72,6 +76,8 @@
         } else {
             this.refreshProps()
         }
+
+        this.drawHandles()
     }
 
     Editor.prototype.detach = function () {
@@ -206,6 +212,49 @@
             return
         }
 
+        if (g.mode === 'vertex') {
+            // A corner snaps to the grid by default; Shift frees it. That is the
+            // opposite of a move, where Shift turns snapping on — deliberate,
+            // because a bend that misses the grid by a pixel is the common way
+            // to make a shape look wrong.
+            var self = this
+            var vsnap = function (n) { return event.shiftKey ? Math.round(n) : self.snapToGrid(n) }
+            var moved = g.abs.map(function (p) { return { x: p.x, y: p.y } })
+            var start = g.abs[g.index]
+
+            if (start) {
+                moved[g.index] = {
+                    x: Math.max(0, vsnap(start.x + dx)),
+                    y: Math.max(0, vsnap(start.y + dy)),
+                }
+                this.commitPoints(g.id, moved)
+            }
+            return
+        }
+
+        if (g.mode === 'divider') {
+            var item = this.find(g.id)
+            var dividers = item && item.dividers ? item.dividers.map(function (d) { return { axis: d.axis, pos: d.pos } }) : null
+            var dv = dividers && dividers[g.index]
+
+            if (item && dv) {
+                var gsnap = event.shiftKey
+                    ? function (n) { return Math.round(n) }
+                    : this.snapToGrid.bind(this)
+
+                if (dv.axis === 'v' && item.w > 0) {
+                    var absX = gsnap(item.x + g.startPos * item.w + dx)
+                    dv.pos = Math.max(0, Math.min(1, (absX - item.x) / item.w))
+                } else if (dv.axis === 'h' && item.h > 0) {
+                    var absY = gsnap(item.y + g.startPos * item.h + dy)
+                    dv.pos = Math.max(0, Math.min(1, (absY - item.y) / item.h))
+                }
+
+                this.store.updateItem(item.id, { dividers: dividers })
+            }
+            return
+        }
+
         var target = this.find(g.id)
         if (!target) return
 
@@ -227,6 +276,194 @@
 
         window.removeEventListener('pointermove', this.boundMove)
         window.removeEventListener('pointerup', this.boundUp)
+    }
+
+    // --- shapable borders --------------------------------------------------
+
+    Editor.prototype.shapePoints = function (item) {
+        return (item.points && item.points.length >= 3) ? item.points : L.defaultShapePoints(item.w, item.h)
+    }
+
+    Editor.prototype.absPoints = function (item) {
+        return this.shapePoints(item).map(function (p) { return { x: item.x + p.x, y: item.y + p.y } })
+    }
+
+    Editor.prototype.snapToGrid = function (n) {
+        var g = this.store.getLayout().gridSize
+        return g > 0 ? Math.round(n / g) * g : Math.round(n)
+    }
+
+    // Write absolute corner points back, re-anchoring the box so it always
+    // tightly wraps the polygon and every point stays at or above zero. Without
+    // this the box and the shape drift apart, and the box is what a drag moves.
+    Editor.prototype.commitPoints = function (id, abs) {
+        var xs = abs.map(function (p) { return p.x })
+        var ys = abs.map(function (p) { return p.y })
+
+        var minX = Math.max(0, Math.min.apply(null, xs))
+        var minY = Math.max(0, Math.min.apply(null, ys))
+        var maxX = Math.max.apply(null, xs)
+        var maxY = Math.max.apply(null, ys)
+
+        this.store.updateItem(id, {
+            x: minX,
+            y: minY,
+            w: Math.max(1, maxX - minX),
+            h: Math.max(1, maxY - minY),
+            points: abs.map(function (p) { return { x: p.x - minX, y: p.y - minY } }),
+        })
+    }
+
+    Editor.prototype.beginVertex = function (item, index, event) {
+        event.preventDefault()
+        event.stopPropagation()
+
+        this.gesture = {
+            id: item.id,
+            mode: 'vertex',
+            index: index,
+            startX: event.clientX,
+            startY: event.clientY,
+            abs: this.absPoints(item),
+            targets: [],
+        }
+
+        window.addEventListener('pointermove', this.boundMove)
+        window.addEventListener('pointerup', this.boundUp)
+    }
+
+    // Grab an edge to insert a corner at its midpoint and drag it out. The new
+    // corner lands on the grid so it starts aligned like the rest.
+    Editor.prototype.addVertex = function (item, edgeIndex, event) {
+        event.preventDefault()
+        event.stopPropagation()
+
+        var abs = this.absPoints(item)
+        var a = abs[edgeIndex]
+        var b = abs[(edgeIndex + 1) % abs.length]
+
+        abs.splice(edgeIndex + 1, 0, {
+            x: Math.max(0, this.snapToGrid((a.x + b.x) / 2)),
+            y: Math.max(0, this.snapToGrid((a.y + b.y) / 2)),
+        })
+
+        this.commitPoints(item.id, abs)
+
+        var updated = this.find(item.id)
+
+        this.gesture = {
+            id: item.id,
+            mode: 'vertex',
+            index: edgeIndex + 1,
+            startX: event.clientX,
+            startY: event.clientY,
+            abs: updated ? this.absPoints(updated) : abs,
+            targets: [],
+        }
+
+        window.addEventListener('pointermove', this.boundMove)
+        window.addEventListener('pointerup', this.boundUp)
+    }
+
+    // Double-click a corner to remove it, down to a triangle.
+    Editor.prototype.deleteVertex = function (item, index, event) {
+        event.preventDefault()
+        event.stopPropagation()
+
+        var abs = this.absPoints(item)
+        if (abs.length <= 3) return
+
+        abs.splice(index, 1)
+        this.commitPoints(item.id, abs)
+    }
+
+    Editor.prototype.beginDivider = function (item, index, event) {
+        event.preventDefault()
+        event.stopPropagation()
+
+        var dividers = item.dividers || []
+
+        this.gesture = {
+            id: item.id,
+            mode: 'divider',
+            index: index,
+            startPos: dividers[index] ? dividers[index].pos : 0.5,
+            startX: event.clientX,
+            startY: event.clientY,
+            targets: [],
+        }
+
+        window.addEventListener('pointermove', this.boundMove)
+        window.addEventListener('pointerup', this.boundUp)
+    }
+
+    Editor.prototype.addDivider = function (item, axis) {
+        var dividers = (item.dividers || []).concat([{ axis: axis, pos: 0.5 }])
+        this.store.updateItem(item.id, { dividers: dividers })
+    }
+
+    // Handles are rebuilt whenever the layout changes, since every one of them
+    // is positioned from the geometry it edits.
+    Editor.prototype.drawHandles = function () {
+        if (!this.handles) return
+
+        this.handles.textContent = ''
+        if (!this.editing()) return
+
+        // Hidden while a menu or panel is open, so they cannot sit on top of it.
+        if (this.menu || (this.props && this.props.isOpen())) return
+
+        var self = this
+        var shapes = this.store.getLayout().items.filter(function (i) { return i.type === 'shape' })
+
+        shapes.forEach(function (item) {
+            var abs = self.absPoints(item)
+
+            // Edge midpoints: drag one to add a bend.
+            abs.forEach(function (p, i) {
+                var q = abs[(i + 1) % abs.length]
+                var mid = document.createElement('div')
+                mid.className = 'rdio-stream-edge'
+                mid.style.left = ((p.x + q.x) / 2) + 'px'
+                mid.style.top = ((p.y + q.y) / 2) + 'px'
+                mid.title = 'Drag to add a bend'
+                mid.addEventListener('pointerdown', function (e) {
+                    if (e.button === 0) self.addVertex(item, i, e)
+                })
+                self.handles.appendChild(mid)
+            })
+
+            abs.forEach(function (p, i) {
+                var vertex = document.createElement('div')
+                vertex.className = 'rdio-stream-vertex'
+                vertex.style.left = p.x + 'px'
+                vertex.style.top = p.y + 'px'
+                vertex.title = 'Drag to move · double-click to delete'
+                vertex.addEventListener('pointerdown', function (e) {
+                    if (e.button === 0) self.beginVertex(item, i, e)
+                })
+                vertex.addEventListener('dblclick', function (e) { self.deleteVertex(item, i, e) })
+                self.handles.appendChild(vertex)
+            })
+
+            ;(item.dividers || []).forEach(function (dv, i) {
+                var handle = document.createElement('div')
+                handle.className = 'rdio-stream-divider' + (dv.axis === 'v' ? ' vertical' : '')
+                handle.style.left = (item.x + (dv.axis === 'v' ? dv.pos * item.w : item.w / 2)) + 'px'
+                handle.style.top = (item.y + (dv.axis === 'h' ? dv.pos * item.h : item.h / 2)) + 'px'
+                handle.title = 'Drag to move · double-click to delete'
+                handle.addEventListener('pointerdown', function (e) {
+                    if (e.button === 0) self.beginDivider(item, i, e)
+                })
+                handle.addEventListener('dblclick', function (e) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    var rest = (item.dividers || []).filter(function (_, j) { return j !== i })
+                    self.store.updateItem(item.id, { dividers: rest })
+                })
+                self.handles.appendChild(handle)
+            })
+        })
     }
 
     Editor.prototype.find = function (id) {
@@ -476,6 +713,7 @@
     Editor.prototype.closeMenu = function () {
         if (this.menu && this.menu.parentNode) this.menu.parentNode.removeChild(this.menu)
         this.menu = null
+        this.drawHandles()
     }
 
     Editor.prototype.openMenu = function (clientX, clientY) {
@@ -514,6 +752,11 @@
             section(this.selected.size === 1 ? L.itemLabel(this.find(Array.from(this.selected)[0]).type)
                 : this.selected.size + ' selected')
             action('Properties…', function () { self.openProps(clientX - rect.left, clientY - rect.top) })
+            var only = self.selected.size === 1 ? self.find(Array.from(self.selected)[0]) : null
+            if (only && only.type === 'shape') {
+                action('Add vertical divider', function () { self.addDivider(only, 'v') })
+                action('Add horizontal divider', function () { self.addDivider(only, 'h') })
+            }
             action('Delete', function () { self.removeSelected() })
             action('Bring to front', function () { self.reorder(true) })
             action('Send to back', function () { self.reorder(false) })
@@ -558,6 +801,7 @@
 
         this.canvas.appendChild(menu)
         this.menu = menu
+        this.drawHandles()
 
         // Nudge back inside the canvas if it would hang off an edge.
         var box = menu.getBoundingClientRect()
