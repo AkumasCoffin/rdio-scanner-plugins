@@ -318,7 +318,12 @@
         node.table.style.setProperty('--hist-lw', item.histLineWidth + 'px')
 
         // Header is rebuilt only when the visible columns change.
-        var headerKey = cols.map(function (c) { return c.key + c.title }).join('|')
+        // Includes the styling, not just the identity: the header was keyed on
+        // key and title alone, so recolouring a column restyled its cells and
+        // left the heading above them unchanged.
+        var headerKey = cols.map(function (c) {
+            return [c.key, c.title, c.color, c.fontSize, c.bold].join(':')
+        }).join('|')
         if (node.headerKey !== headerKey) {
             node.thead.textContent = ''
             var tr = document.createElement('tr')
@@ -372,7 +377,13 @@
             case 'callProgress': return formatTime(s.callProgress, s.timeFormat)
             case 'listeners': return String(s.listeners)
             case 'queue': return String(s.callQueue)
-            case 'delay': return s.formatDelay(s.queueTime) || '0:00'
+            case 'delay': {
+                var delay = s.formatDelay(s.queueTime) || '0:00'
+                // The amount an auto-jump just shed, shown beside the delay for
+                // a few seconds exactly as the LCD does.
+                var shed = s.delayRemoved > 0 ? s.formatDelay(s.delayRemoved) : ''
+                return shed ? delay + ' -' + shed : delay
+            }
             case 'system': return s.callSystem
             case 'tag': return s.callTag
             case 'talkgroup': return s.callTalkgroup

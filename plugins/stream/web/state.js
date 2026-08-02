@@ -22,7 +22,10 @@
         this.displayCall = undefined
 
         this.clock = new Date()
-        this.callProgress = new Date(0)
+        // Local midnight, not the Unix epoch. callProgress is formatted with
+        // local parts, so new Date(0) idles at the timezone offset — "10:00" in
+        // UTC+10 — until the first call arrives.
+        this.callProgress = new Date(0, 0, 0, 0, 0, 0)
         this.listeners = 0
         this.callQueue = 0
 
@@ -95,6 +98,7 @@
             // Best effort.
         }
         if (this.timer) clearInterval(this.timer)
+        if (this.jumpTimer) clearTimeout(this.jumpTimer)
         this.listenersFns = []
     }
 
@@ -105,14 +109,18 @@
             this.config = ev.config
             this.timeFormat = ev.config.time12hFormat ? 'h:mm a' : 'HH:mm'
 
-            // The LCD shows the running version as its idle talkgroup name.
-            if (ev.config.version && !this.call) {
+            // Only before anything has played. Guarding on `!this.call` alone
+            // was also true while idling on the last call, so a config push
+            // replaced that call's talkgroup name with the version string and
+            // left its system and tag beside it — a display half from one call
+            // and half from nowhere.
+            if (ev.config.version && !this.displayCall) {
                 this.callTalkgroupName = 'Rdio Scanner v' + ev.config.version
             }
         }
 
         // The server sends its version separately from the config payload.
-        if (ev.version && !this.call) {
+        if (ev.version && !this.displayCall) {
             this.callTalkgroupName = 'Rdio Scanner v' + ev.version
         }
 
@@ -124,10 +132,16 @@
         // is the position; getCallDuration is the total.
         if (typeof ev.time === 'number') this.callTime = ev.time
 
-        // Seconds the live feed is running behind, and any amount just shed by
-        // an auto-jump.
+        // Seconds the live feed is running behind.
         if (typeof ev.queueTime === 'number') this.queueTime = ev.queueTime
-        if (typeof ev.delayRemoved === 'number') this.delayRemoved = ev.delayRemoved
+
+        // An auto-jump just shed some delay. The event is queueJumped — reading
+        // a field named delayRemoved, which nothing emits, meant the "-m:ss"
+        // flash the LCD shows could never appear at all.
+        if (typeof ev.queueJumped === 'number' && ev.queueJumped > 0) {
+            this.delayRemoved += ev.queueJumped
+            this.flashJump()
+        }
 
         if ('call' in ev) {
             var previous = this.call
@@ -202,6 +216,20 @@
 
         // Follows the conversation, using the position rather than the total.
         this.callUnit = this.unitFor(call, this.callTime || 0)
+    }
+
+    // Clears the shed-delay figure after a few seconds, so it reads as a flash
+    // beside the delay rather than a number that sticks around looking current.
+    State.prototype.flashJump = function () {
+        var self = this
+
+        if (this.jumpTimer) clearTimeout(this.jumpTimer)
+
+        this.jumpTimer = setTimeout(function () {
+            self.jumpTimer = undefined
+            self.delayRemoved = 0
+            self.changed()
+        }, 4000)
     }
 
     // "m:ss", or "h:mm:ss" past an hour. Empty at or below zero, so the readout

@@ -59,6 +59,11 @@ rdio.plugins.call('transcripts', 'transcribe', { id: 42 })
 // -> { id: 42, transcript: '...', cached: false }
 ```
 
+A `transcribe` call is bounded by the plugin bus's 30-second timeout. On a slow
+provider with retries the call can time out on your side while the transcription
+still completes — it is stored and announced on the `transcript` topic as usual,
+so subscribe rather than re-calling if you hit that.
+
 Check availability from `plugins.ready`, not `startup` — `startup` fires per
 plugin in load order, so this plugin may not have loaded yet when yours does.
 

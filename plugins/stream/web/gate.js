@@ -56,6 +56,35 @@
     Gate.prototype.sync = function () {
         if (!this.el) return
 
+        // A session that expires mid-broadcast asks for the code again. The main
+        // page answers that silently from the code it already has, and the
+        // built-in overlay inherited that behaviour — so the card almost never
+        // appeared. Without it an unattended overlay covers the broadcast with a
+        // password form until somebody walks over and types, which is the worst
+        // moment for this feature to need a human.
+        if (this.state.auth && !this.reauthTried && this.app.readPin) {
+            var saved = ''
+            try {
+                saved = this.app.readPin() || ''
+            } catch (err) {
+                saved = ''
+            }
+
+            if (saved) {
+                // Once per prompt: if the saved code is the reason we are being
+                // asked, retrying it forever would spin.
+                this.reauthTried = true
+                try {
+                    this.app.authenticate(saved)
+                } catch (err) {
+                    console.error('[stream] could not re-authenticate', err)
+                }
+                return
+            }
+        }
+
+        if (!this.state.auth) this.reauthTried = false
+
         var wanted = this.visible()
         this.el.style.display = wanted ? '' : 'none'
 
@@ -133,7 +162,11 @@
         try {
             this.app.startLivefeed()
         } catch (err) {
+            // The gate stays up. Marking it started anyway would hide it over a
+            // feed that never began, leaving a silent overlay with nothing on
+            // screen to say so or to try again with.
             console.error('[stream] could not start the live feed', err)
+            return
         }
 
         this.started = true
