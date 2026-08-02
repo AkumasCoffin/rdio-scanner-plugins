@@ -213,7 +213,7 @@ Publish an extension point of your own.
 
 | Point | Timeout | Notes |
 |---|---|---|
-| `startup` | default | After the plugin loads and its tables exist. |
+| `startup` | default | After the plugin loads and its tables exist. Fires per plugin, in load order, so this is the wrong place to ask what else is running — use `plugins.ready`. |
 | `shutdown` | default | The server is stopping. Best effort. |
 | `tick` | default | Hourly, alongside the built-in maintenance run. |
 | `config.changed` | default | This plugin's settings were saved. |
