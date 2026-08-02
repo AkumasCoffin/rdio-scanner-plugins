@@ -16,7 +16,7 @@
 
             // Parts are loaded by the entry rather than bundled, so the source
             // stays readable and the plugin needs no build step to install.
-            var parts = ['layout.js', 'store.js', 'state.js', 'render.js', 'props.js', 'edit.js']
+            var parts = ['layout.js', 'store.js', 'state.js', 'render.js', 'shapes.js', 'props.js', 'edit.js']
 
             var loading = parts.reduce(function (chain, file) {
                 return chain.then(function () { return ctx.assets.loadScript('web/' + file) })
@@ -64,6 +64,7 @@
         var store = new window.RdioStreamStore()
         var state = new window.RdioStreamState(app).start()
         var renderer = new window.RdioStreamRenderer(container, store, state).mount()
+        var shapes = new window.RdioStreamShapes(renderer.svg, store, renderer)
         var editor = new window.RdioStreamEditor(renderer.canvas, store, renderer).attach()
 
         // A layout change rebuilds; a data change only rewrites text. The
@@ -71,9 +72,16 @@
         // on may have been replaced.
         store.onChange(function () {
             renderer.build()
+            shapes.update()
             editor.paintSelection()
         })
-        state.onChange(function () { renderer.update() })
+        state.onChange(function () {
+            renderer.update()
+            // Shapes follow the talkgroup colour and the call/idle toggles, so
+            // they have to be re-checked on data too. update() is signature
+            // guarded, so a static border costs a string compare.
+            shapes.update()
+        })
 
         return function () {
             editor.detach()
