@@ -88,51 +88,226 @@ Slots cover the common cases. When you need somewhere else, attach by selector:
 
 ```js
 ctx.dom.attach('[data-rdio="history-row"]', function (el) {
-  el.textContent = '★'
-})
-
-// First match only — for a single overlay, banner or floating panel.
-ctx.dom.attachOnce('body', function (el) {
-  el.className = 'my-plugin-overlay'
+  el.textContent = '*'
 })
 ```
 
-`el` is a fresh element mounted **inside** each match, not the match itself — so the
-`attachOnce` above styles a div inside `<body>`, not `<body>`. That is deliberate: your
-markup is yours to own, and nothing you do to it can disturb the element the scanner is
-rendering. Reach the match itself through `el.parentElement` if you need it.
-
-Only a **slot** factory receives a second argument. A `dom` factory is called with the
-element and nothing else.
+`el` is a fresh element mounted **inside** each match, not the match itself. That is deliberate:
+your markup is yours to own, and nothing you do to it can disturb what the scanner is rendering.
+To change the match itself, use `decorate` below.
 
 `attach` mounts into every current match **and every future one**. Call history rows and search
 results are created and destroyed constantly as calls arrive; a plain `querySelectorAll` at startup
-would miss all of them. Attachments are also removed automatically when the plugin is disabled, which
+would miss all of them. Attachments are removed automatically when the plugin is disabled, which
 hand-rolled DOM code would not be.
+
+Only a **slot** factory receives a second argument. A `dom` factory is called with the element and
+nothing else.
+
+### Where your element goes
+
+By default it is appended inside the match. `position` puts it somewhere else:
+
+```js
+// A button beside AVOID rather than inside it.
+ctx.dom.attach('[data-rdio="control-avoid"]', mountMyButton, { position: 'after' })
+
+// A banner above the call history.
+ctx.dom.attach('[data-rdio="history"]', mountBanner, { position: 'before' })
+
+// Your own control instead of the built-in one.
+ctx.dom.attach('[data-rdio="control-stats"]', mountMine, { position: 'replace' })
+```
+
+| `position` | Where your element lands |
+|---|---|
+| `append` (default) | Last child of the match |
+| `prepend` | First child of the match |
+| `before` | Immediately before the match, as a sibling |
+| `after` | Immediately after the match, as a sibling |
+| `replace` | After the match, with the match hidden |
+
+`replace` **hides** the original rather than removing it. Angular is still rendering into that node;
+detaching it means the next change detection writes into a tree nothing is showing, and it could
+never come back when your plugin is disabled. Hiding is reversible, and reversal is the point.
+
+`before`, `after` and `replace` need the match to have a parent. Asked to place content before
+`<html>`, the host logs an error and mounts nothing rather than quietly appending inside instead.
+
+### Changing what is already there
+
+`attach` adds elements. To change one the scanner already rendered -- a class, an attribute, the
+text of a button -- use `decorate`, which hands you **the matched element itself**:
+
+```js
+ctx.dom.decorate('[data-rdio="control-avoid"]', function (el) {
+  var original = el.textContent
+  el.textContent = 'IGNORE'
+
+  // Return how to put it back. The host cannot infer that setting text means
+  // restoring the old text, so undoing it is yours to declare.
+  return function () { el.textContent = original }
+})
+```
+
+Like `attach`, it applies to matches that appear later. Unlike `attach`, it is borrowing something
+the application owns -- so returning a teardown is not optional if you want the page restored when
+your plugin is disabled.
 
 ### Stable anchors
 
 Class names are styling and change freely between releases. `data-rdio` attributes are anchors and
-do not:
+do not. Target these rather than class names and your plugin keeps working across upgrades.
+
+**Shell and panels**
+
+| Anchor | Element |
+|---|---|
+| `[data-rdio="app"]` | The whole application container |
+| `[data-rdio="panel-search"]` | The search panel |
+| `[data-rdio="panel-select"]` | The talkgroup selection panel |
+| `[data-rdio="panel-stats"]` | The statistics panel |
+| `[data-rdio="panel-plugin"]` | The panel plugin views render into |
+| `[data-rdio="fab-plugin-views"]` | The floating button that opens plugin views |
+| `[data-rdio="fab-stream-edit"]` | The floating stream edit-mode button |
+
+**Main screen**
 
 | Anchor | Element |
 |---|---|
 | `[data-rdio="status"]` | The status bar above the LCD |
+| `[data-rdio="branding"]` | The branding text in the status bar |
+| `[data-rdio="led"]` | The activity LED |
 | `[data-rdio="lcd"]` | The LCD panel |
+| `[data-rdio="lcd-transcript"]` | The live transcript block inside the LCD |
 | `[data-rdio="history"]` | The call history table |
 | `[data-rdio="history-row"]` | One call history row; `data-rdio-call` holds the call id |
+| `[data-rdio="controls"]` | The control button panel |
+| `[data-rdio="autojump"]` | The auto-jump threshold control |
+| `[data-rdio="volume"]` | The volume control |
+| `[data-rdio="help"]` | The help button |
+
+**Each control button**, individually -- so you can hide, restyle or sit beside exactly one:
+`[data-rdio="control-livefeed"]`, `[data-rdio="control-hold-sys"]`, `[data-rdio="control-hold-tg"]`,
+`[data-rdio="control-replay"]`, `[data-rdio="control-skip"]`, `[data-rdio="control-avoid"]`,
+`[data-rdio="control-search"]`, `[data-rdio="control-pause"]`, `[data-rdio="control-select"]`,
+`[data-rdio="control-stats"]`, `[data-rdio="control-autojump"]`.
+
+Before these existed a plugin could only tell the buttons apart by their text, so hiding or
+restyling one meant matching on `innerText` or counting siblings -- both of which break the moment a
+button is added or reworded.
+
+**Search**
+
+| Anchor | Element |
+|---|---|
+| `[data-rdio="search"]` | The search screen |
+| `[data-rdio="search-filters"]` | The filter bar |
+| `[data-rdio="search-actions"]` | The download and reset actions |
+| `[data-rdio="search-results"]` | The results list |
+| `[data-rdio="search-row"]` | One result row |
+
+**Talkgroup selection**
+
+| Anchor | Element |
+|---|---|
+| `[data-rdio="select-presets"]` | The presets section |
+| `[data-rdio="select-preset"]` | One saved preset |
+| `[data-rdio="select-category"]` | One category toggle |
+| `[data-rdio="select-group"]` | One group of talkgroups |
+| `[data-rdio="select-talkgroup"]` | One talkgroup button |
+
+**Admin**
+
+| Anchor | Element |
+|---|---|
 | `[data-rdio="admin"]` | The admin panel accordion |
+| `[data-rdio="admin-login"]` | The login form |
+| `[data-rdio="admin-stats"]` | The Statistics section |
+| `[data-rdio="admin-config"]` | The Config section |
+| `[data-rdio="admin-plugins"]` | The Plugins section |
+| `[data-rdio="admin-logs"]` | The Logs section |
+| `[data-rdio="admin-tools"]` | The Tools section |
+| `[data-rdio="admin-logout"]` | The Logout row |
 
 The OBS stream overlay has no slot of its own. Its item types are a fixed set the component owns, so
-there is nothing to register into — reach it with `ctx.dom.attach('.stream-item', ...)` and style it
-through the [theme contract](theme-contract.md). If you want plugin-defined overlay items, say so and
-it becomes a registration point rather than a slot.
-
-Target these rather than class names, and your plugin keeps working across upgrades.
+there is nothing to register into -- reach it with `ctx.dom.attach('.stream-item', ...)` and style it
+through the [theme contract](theme-contract.md).
 
 If you need something none of the above expresses, `ctx.dom.document()` hands you the raw document.
-Plugin code always had this — it runs in the page — but going through the helpers means your content
-gets re-applied and cleaned up properly instead of silently breaking the first time Angular re-renders.
+Plugin code always had this -- it runs in the page -- but going through the helpers means your
+content gets re-applied and cleaned up properly instead of silently breaking the first time Angular
+re-renders.
+
+## Styling
+
+`ctx.styles.set()` writes a rule that **takes effect**:
+
+```js
+ctx.styles.set('[data-rdio="lcd"]', { background: '#000', color: '#0f0' })
+ctx.styles.set('[data-rdio="control-stats"]', { display: 'none' })
+
+ctx.styles.clear('[data-rdio="lcd"]')   // one rule
+ctx.styles.clear()                      // everything this plugin set
+```
+
+Properties are accepted under either spelling -- `backgroundColor` or `background-color`. Custom
+properties such as `--surface-panel` pass through untouched, because they are case-sensitive.
+
+Why this rather than a `<style>` tag of your own: the scanner's components are compiled with
+Angular's emulated encapsulation, so a component rule is really `.rdio-button[_ngcontent-abc]` --
+more specific than the `.rdio-button` you would write. Matching that specificity only produces a
+tie, and ties are settled by source order, which you cannot control: the admin screen is
+lazy-loaded, so its styles are injected **after** yours and win -- on exactly the screen you are
+most likely to be styling.
+
+`ctx.styles` handles both. Your rules go in a stylesheet the host keeps last in `<head>`, and each
+selector is boosted by one `:root` so it matches an encapsulated rule's specificity. You do not need
+`!important`, and you should not reach for it first: it puts your styling beyond the reach of the
+user's own theme and leaves two plugins with no way to resolve a disagreement. It is there when you
+genuinely need it:
+
+```js
+ctx.styles.set('.something-stubborn', { color: 'red' }, { important: true })
+```
+
+`ctx.injectCss(css)` and `ctx.assets.loadStyle(path)` still take bulk CSS and get the same
+kept-last placement -- but they are **not** specificity-boosted, so write those selectors
+accordingly.
+
+### Convenience
+
+```js
+ctx.ui.hide('control-stats')              // by anchor name, no selector needed
+ctx.ui.show('control-stats')
+ctx.ui.setLabel('control-avoid', 'IGNORE')
+```
+
+`setLabel` restores the original text when your plugin is disabled. It sets text, not markup — so a
+two-line label built with a `<br>` (LIVE FEED, HOLD SYS) comes back as one line. For anything with
+more structure than a string, use `dom.decorate` or `attach` with `position: 'replace'`.
+
+## Reacting to state in CSS alone
+
+The scanner mirrors its state onto `<body>`, so a rule can follow it with no JavaScript running:
+
+```css
+body[data-rdio-livefeed="on"] [data-rdio="led"] { box-shadow: 0 0 12px #0f0 }
+body[data-rdio-panel="search"] [data-rdio="lcd"] { opacity: 0.4 }
+body[data-rdio-call="1"] .my-now-playing { display: block }
+```
+
+| Attribute | Values |
+|---|---|
+| `data-rdio-livefeed` | `on`, `off` |
+| `data-rdio-paused` | `1`, `0` |
+| `data-rdio-linked` | `1`, `0` -- whether the websocket is connected |
+| `data-rdio-hold` | `sys`, `tg`, `none` |
+| `data-rdio-call` | `1` while a call is playing, `0` otherwise |
+| `data-rdio-panel` | `search`, `select`, `stats`, `plugin`, `none` |
+
+A paused feed is still `livefeed="on"` -- pause is its own attribute, so a rule for "online" keeps
+matching while paused.
 
 ## Shipping assets
 
@@ -185,6 +360,13 @@ Never put credentials in frontend code — `web/` is served to every client.
 ctx.api.get('status').then(function (res) { /* GET /api/plugin/<id>/status */ })
 ctx.api.post('action', { some: 'payload' })
 ```
+
+Both carry the admin session token when an admin is signed in, so a settings panel can reach a route
+your backend guards with `rdio.admin.verifyToken`. On the public scanner page there is no token and
+nothing is sent, so an unguarded route is reached exactly as before.
+
+Read the token server-side under either spelling — `req.headers.Authorization` or
+`req.headers.authorization`. Both are present.
 
 Websocket commands registered server-side with `rdio.ws.on` are reachable directly, reusing the
 webapp's existing connection:
@@ -273,6 +455,14 @@ the way the documented surface is.
 
 `ctx.theme` reads and writes the [theme contract](theme-contract.md): the CSS custom properties
 declared on `:root`.
+
+The contract is at version **2**: colour, shape and shadow from version 1, plus type
+(`--font-sans`, `--font-mono`, a size scale, three weights), spacing (`--space-xs` through
+`--space-xl`) and stacking (`--z-panel`, `--z-overlay`, `--z-fab`). Nothing from version 1 was
+renamed — check the version before applying a theme, not before reading a property.
+
+Use the type and spacing properties in your own panels and they will match the interface they sit
+in, rather than hardcoding a font that changes underneath you.
 
 ```js
 if (ctx.theme.version() >= 1) {
