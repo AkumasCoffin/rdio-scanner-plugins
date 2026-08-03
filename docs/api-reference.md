@@ -95,7 +95,7 @@ Call and be called by other plugins, and broadcast events between them.
 - `list()`
 - `has(id)`
 - `handle(method, fn) — offer a method others may call`
-- `call(pluginId, method, args) — returns a promise; a call into a plugin already waiting on someone else is refused rather than deadlocked`
+- `call(pluginId, method, args) — returns a promise, so your event loop keeps running while the other plugin works`
 - `publish(topic, payload) — returns how many received it; never waits`
 - `subscribe(topic, fn)`
 
@@ -115,8 +115,8 @@ The configured systems and talkgroups.
 
 The filesystem. Relative paths resolve inside this plugin's data directory.
 
-- `readFile(path)`
-- `readText(path)`
+- `readFile(path, {offset, length}) — an ArrayBuffer; a file over the size limit is refused unless you name a range`
+- `readText(path, {offset, length}) — the same, as a string`
 - `writeFile(path, data)`
 - `appendFile(path, data)`
 - `exists(path)`
