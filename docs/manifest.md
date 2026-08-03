@@ -156,6 +156,16 @@ uninstalls, and rows are cleaned up by the plugin itself.
 
 ## Versioning and migrations
 
-When a plugin's `version` changes and the new manifest declares new tables or columns, they are
-created on next start. Existing columns are never altered or dropped automatically; do that from
-`main.js` on the `startup` event if you need it.
+New tables and new columns declared by a later version are created on next start, along with any
+indexes on them. Nothing needs to be recorded for this: every statement is idempotent, so it simply
+runs each time the plugin starts.
+
+Only additions. A column whose `type` changed, and one the manifest no longer declares, are both
+left exactly as they are — rewriting a column loses data on some backends and truncates silently on
+others, and there is no safe way to guess what was meant. Do that from `main.js` on `startup`, where
+you can decide.
+
+One case is refused rather than attempted: adding a `primaryKey` column to a table that already
+exists. A key cannot be introduced to a table with rows in it, so the plugin reports the problem on
+its card instead of starting with a table that is subtly not what the manifest says. Purging the
+plugin's data recreates the table from scratch.
