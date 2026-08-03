@@ -87,7 +87,7 @@ ctx.views.register({
 Slots cover the common cases. When you need somewhere else, attach by selector:
 
 ```js
-ctx.dom.attach('[data-rdio="history-row"]', function (el, ) {
+ctx.dom.attach('[data-rdio="history-row"]', function (el) {
   el.textContent = '★'
 })
 
@@ -96,6 +96,14 @@ ctx.dom.attachOnce('body', function (el) {
   el.className = 'my-plugin-overlay'
 })
 ```
+
+`el` is a fresh element mounted **inside** each match, not the match itself — so the
+`attachOnce` above styles a div inside `<body>`, not `<body>`. That is deliberate: your
+markup is yours to own, and nothing you do to it can disturb the element the scanner is
+rendering. Reach the match itself through `el.parentElement` if you need it.
+
+Only a **slot** factory receives a second argument. A `dom` factory is called with the
+element and nothing else.
 
 `attach` mounts into every current match **and every future one**. Call history rows and search
 results are created and destroyed constantly as calls arrive; a plain `querySelectorAll` at startup
@@ -148,19 +156,26 @@ policy. When a service does not allow cross-origin browser requests, or the requ
 proxy it through your backend half instead:
 
 ```js
-// web/plugin.js
-ctx.api.get('tiles?z=10&x=5&y=3')
+// web/plugin.js — ctx.api parses JSON, so point an <img> at the route for
+// anything that is not. The route is served from the page's own origin.
+img.src = 'api/plugin/my-plugin/tiles?z=10&x=5&y=3'
 
 // main.js — keeps the API key server-side
 rdio.routes.register('GET', 'tiles', function (req) {
   return rdio.http.request({
     url: 'https://tiles.example.com/' + req.query.z + '/' + req.query.x + '/' + req.query.y,
-    headers: { Authorization: 'Bearer ' + rdio.config.get('apiKey') }
+    headers: { Authorization: 'Bearer ' + rdio.config.get('apiKey') },
+    // Without this the image comes back through a JavaScript string, which is
+    // UTF-8 — roughly half of all byte values do not survive the trip.
+    binary: true
   }).then(function (res) {
     return { status: res.status, headers: { 'Content-Type': 'image/png' }, body: res.body }
   })
 })
 ```
+
+`ctx.api.get` and `ctx.api.post` parse the response as JSON. They are for talking to your
+own backend half, not for fetching binary — there is no variant that returns a blob.
 
 Never put credentials in frontend code — `web/` is served to every client.
 

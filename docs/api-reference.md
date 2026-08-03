@@ -221,6 +221,7 @@ Publish an extension point of your own.
 | Point | Verbs | Timeout | Notes |
 |---|---|---|---|
 | `startup` | `on` | default | After the plugin loads and its tables exist. Fires per plugin, in load order, so this is the wrong place to ask what else is running — use `plugins.ready`. |
+| `plugins.ready` | `on` | default | Once, after every plugin has started. Carries `count`. This is where a plugin that composes with another one wires up: `rdio.plugins.list()` and `has()` are only complete here, because `startup` fires while other plugins are still loading. |
 | `shutdown` | `on` | default | The server is stopping. Best effort. |
 | `tick` | `on` | default | Hourly, alongside the built-in maintenance run. |
 | `config.changed` | `on` | default | This plugin's settings were saved. |

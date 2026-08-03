@@ -17,7 +17,6 @@ before deciding whether a plugin can be installed.
   "minServerVersion": "6.14.0",
   "main": "main.js",
   "web": "web/plugin.js",
-  "permissions": ["http", "routes"],
   "config": [
     {
       "key": "greeting",
@@ -52,9 +51,8 @@ before deciding whether a plugin can be installed.
 | `homepage` | no | Link shown on the plugin card. |
 | `minServerVersion` | no | Plugins requiring a newer server are shown as incompatible and cannot be installed. |
 | `maxServerVersion` | no | Same, for an upper bound. |
-| `main` | no | Backend entry point. Defaults to `main.js`. Omit for frontend-only plugins. |
+| `main` | no | Backend entry point, conventionally `main.js`. There is no default: omit it only for a frontend-only plugin, because a plugin that ships `main.js` without naming it here installs, enables, reports as running, and executes nothing. |
 | `web` | no | Frontend entry point. Omit for backend-only plugins. |
-| `permissions` | no | See below. Shown to the admin at install time. |
 | `config` | no | Configuration schema. The admin panel renders a form from this. |
 | `tables` | no | Database tables to create on install. |
 

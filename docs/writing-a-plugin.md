@@ -107,8 +107,10 @@ rdio.calls.extendField({
     valueColumn: 'transcript',
 })
 
-// Make that column searchable through the normal call search.
-rdio.search.extend({ table: 'calls', keyColumn: 'callId', valueColumn: 'transcript' })
+// Make that column searchable through the normal call search. Note the key is
+// textColumn here, not valueColumn — extendField publishes a value, search
+// indexes text, and they are separate registrations.
+rdio.search.extend({ table: 'calls', keyColumn: 'callId', textColumn: 'transcript' })
 ```
 
 Your JavaScript runs when the value is *written*. The server does the lookup on
