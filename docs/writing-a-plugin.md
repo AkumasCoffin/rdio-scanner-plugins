@@ -169,7 +169,28 @@ window.rdioScanner.plugins.register('my-plugin', {
 
 `ctx` gives you the running scanner (`ctx.app`), the theme, named slots,
 arbitrary DOM attachment, whole pages at their own URL, and a channel back to
-your server side. See the [frontend API](frontend-api.md).
+your server side.
+
+The interface is addressable rather than merely reachable. Every part worth
+aiming at carries a `data-rdio` anchor that survives releases — including each
+control button individually — so you can put something beside AVOID, hide
+STATS, or restyle the LCD without matching on class names or button text:
+
+```js
+ctx.dom.attach('[data-rdio="control-avoid"]', mountMyButton, { position: 'after' })
+ctx.ui.hide('control-stats')
+ctx.styles.set('[data-rdio="lcd"]', { background: '#000', color: '#0f0' })
+```
+
+Use `ctx.styles` rather than a `<style>` tag of your own. Component styles are
+compiled with Angular's emulated encapsulation and out-specify anything you
+write; `ctx.styles` matches their specificity and keeps your sheet last in
+`<head>`, which is what makes a rule actually take effect. Scanner state is
+mirrored onto `<body>`, so `body[data-rdio-livefeed="on"]` responds in CSS with
+no JavaScript running at all.
+
+See the [frontend API](frontend-api.md) for the full anchor table, the placement
+modes and the state attributes.
 
 ## Talking to other plugins
 

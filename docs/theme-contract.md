@@ -33,11 +33,15 @@ update — that is the point of publishing a contract rather than leaving themes
 to fight component styles. Adding a property is a minor change; renaming or
 removing one bumps `--theme-contract`, which `ctx.theme.version()` reports.
 
+Version 2 added type, spacing and stacking. Nothing from version 1 was renamed,
+so a theme written against 1 still applies cleanly — check the version before
+applying a theme, not before reading a property.
+
 ## General
 
 | Property | Default |
 | --- | --- |
-| `--theme-contract` | `1` |
+| `--theme-contract` | `2` |
 
 ## Surfaces, darkest to lightest
 
@@ -147,3 +151,44 @@ removing one bumps `--theme-contract`, which `ctx.theme.version()` reports.
 | `--radius-pill` | `999px` |
 | `--shadow-soft` | `0 18px 40px rgba(0, 0, 0, 0.65)` |
 | `--sidebar-width` | `260px` |
+
+## Type
+
+Published so a plugin's own panel matches the interface it sits in. Before these
+existed the only way to do that was to read the font off a component's
+stylesheet and hardcode it, which is exactly the coupling this contract exists
+to avoid.
+
+| Property | Default |
+| --- | --- |
+| `--font-sans` | `'Roboto', 'Helvetica Neue', sans-serif` |
+| `--font-mono` | `'Roboto Mono', ui-monospace, monospace` |
+| `--font-size-xs` | `11px` |
+| `--font-size-sm` | `12px` |
+| `--font-size-md` | `13px` |
+| `--font-size-lg` | `15px` |
+| `--font-size-xl` | `18px` |
+| `--font-weight-normal` | `400` |
+| `--font-weight-medium` | `500` |
+| `--font-weight-bold` | `700` |
+
+## Spacing
+
+| Property | Default |
+| --- | --- |
+| `--space-xs` | `4px` |
+| `--space-sm` | `8px` |
+| `--space-md` | `16px` |
+| `--space-lg` | `24px` |
+| `--space-xl` | `32px` |
+
+## Stacking
+
+A plugin adding an overlay used to guess at a z-index and find out whether it
+had guessed high enough only once a panel opened over it.
+
+| Property | Default |
+| --- | --- |
+| `--z-panel` | `100` |
+| `--z-overlay` | `500` |
+| `--z-fab` | `900` |
