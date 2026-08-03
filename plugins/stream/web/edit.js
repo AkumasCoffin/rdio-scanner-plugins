@@ -763,14 +763,20 @@
             menu.appendChild(el)
         }
 
-        function action(label, fn) {
+        function action(label, fn, danger) {
             var el = document.createElement('button')
-            el.className = 'menu-item'
+            el.className = danger ? 'menu-item danger' : 'menu-item'
             el.type = 'button'
             el.textContent = label
             el.addEventListener('click', function () { fn(); self.closeMenu() })
             menu.appendChild(el)
             return el
+        }
+
+        function separator() {
+            var el = document.createElement('div')
+            el.className = 'menu-sep'
+            menu.appendChild(el)
         }
 
         if (this.selected.size) {
@@ -787,7 +793,7 @@
             }
             if (only) action('Copy style', function () { self.copyStyle(only) })
             if (self.copied) action('Paste style', function () { self.pasteStyle() })
-            action('Delete', function () { self.removeSelected() })
+            action('Delete', function () { self.removeSelected() }, true)
             action('Bring to front', function () { self.reorder(true) })
             action('Send to back', function () { self.reorder(false) })
         } else {
@@ -795,23 +801,55 @@
             action('Canvas properties…', function () { self.openProps(clientX - rect.left, clientY - rect.top) })
         }
 
+        separator()
         section('Add')
 
         var counts = {}
         this.store.getLayout().items.forEach(function (i) { counts[i.type] = (counts[i.type] || 0) + 1 })
 
+        // A wrapped grid of chips rather than one long column. There are twenty
+        // of these, and stacked vertically they made the menu taller than most
+        // screens — which is why it scrolled, and why finding anything below it
+        // meant scrolling past every readout first.
+        var add = document.createElement('div')
+        add.className = 'menu-add'
+        menu.appendChild(add)
+
         L.ITEM_TYPES.forEach(function (type) {
             var n = counts[type.type] || 0
-            var el = action(type.label + (n ? ' (' + n + ')' : ''), function () {
-                self.addItem(type.type, clientX - rect.left, clientY - rect.top)
-            })
+
+            var chip = document.createElement('button')
+            chip.className = 'menu-chip'
+            chip.type = 'button'
+
+            var label = document.createElement('span')
+            label.textContent = type.label
+            chip.appendChild(label)
+
+            // The count is a badge rather than "(1)" in the text, so the number
+            // reads as a quantity instead of part of the name.
+            if (n) {
+                var badge = document.createElement('span')
+                badge.className = 'count'
+                badge.textContent = String(n)
+                chip.appendChild(badge)
+            }
+
             // Types with data behind them that are not on screen are worth
             // pointing at; decoration and custom text are not "missing".
             if (!n && type.type !== 'text' && !L.isBorder(type.type)) {
-                el.classList.add('missing')
+                chip.classList.add('missing')
             }
+
+            chip.addEventListener('click', function () {
+                self.addItem(type.type, clientX - rect.left, clientY - rect.top)
+                self.closeMenu()
+            })
+
+            add.appendChild(chip)
         })
 
+        separator()
         section('Canvas')
         action(this.store.getLayout().showGrid ? 'Hide grid' : 'Show grid', function () {
             // Read at click time, not when the menu was built: the layout can
@@ -825,8 +863,9 @@
                 self.store.reset()
                 self.setSelection([])
             }
-        })
+        }, true)
 
+        separator()
         section('Layout file')
         action('Export…', function () { self.exportLayout() })
         action('Import…', function () { self.importLayout() })

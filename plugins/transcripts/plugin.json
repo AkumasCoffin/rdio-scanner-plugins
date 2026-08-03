@@ -1,7 +1,7 @@
 {
   "id": "transcripts",
   "name": "Transcripts",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "apiVersion": 1,
   "description": "Transcribes call audio with Whisper and shows it in the scanner.",
   "author": "Rdio Scanner",
@@ -9,6 +9,7 @@
   "homepage": "https://github.com/AkumasCoffin/rdio-scanner-plugins",
   "minServerVersion": "6.14.0-beta.1",
   "main": "main.js",
+  "web": "web/plugin.js",
   "config": [
     {
       "key": "enabled",
