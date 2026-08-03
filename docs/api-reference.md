@@ -107,9 +107,12 @@ Make one of your columns findable through the normal call search.
 
 ### `rdio.systems`
 
-The configured systems and talkgroups.
+The configured systems, talkgroups and unit aliases, with group and tag resolved to their labels.
 
 - `list()`
+- `get(systemId) — one system, or null`
+- `talkgroup(systemId, talkgroupId) — the lookup a call handler wants: call.stored carries both as bare integers`
+- `unit(systemId, unitId) — the unit alias, or null`
 
 ### `rdio.fs`
 
@@ -257,7 +260,7 @@ Publish an extension point of your own.
 | `access.check` | `on`, `filter`, `provide` | default | A listener presented an access code. `provide` runs only when rdio's own table did not recognise it — return `{ident, systems}` to grant, nothing to refuse — so adding an auth plugin never invalidates the accounts already configured. `filter` always runs and may narrow the grant or refuse it with `{drop: true}`. |
 | `access.scope` | `on`, `filter` | 250ms | What systems and talkgroups a session may see. Runs for every listener once, including on a server with no access codes at all, so it is the point for deciding visibility rather than admission. Return `{systems}` to narrow; `{drop: true}` shows the client nothing rather than disconnecting it. |
 | `apikey.check` | `on`, `filter`, `provide` | default | An upload presented an API key. Same shape as `access.check`: `provide` covers a key rdio has never seen, `filter` narrows or refuses one it has. |
-| `admin.check` | `on`, `filter`, `provide` | default | An admin login. `provide` runs only when the local password check failed, so a plugin can add an external directory without ever being able to lock out the local password. `filter` runs on success, which is where a second factor or an address restriction goes. The submitted password is included, because an external directory cannot verify a credential it is not given; it is never logged. |
+| `admin.check` | `on`, `filter`, `provide` | default | An admin login. `provide` runs only when the local password check failed, so a plugin can add an external directory without ever being able to lock out the local password. `filter` runs on success, which is where a second factor or an address restriction goes. The submitted password reaches `provide` only, because an external directory cannot verify a credential it is not given. `on` and `filter` never see it — they cannot use it, and handing the plaintext admin password to every installed plugin for a capability none of them have is not a trade worth making. It is never logged. |
 
 ### Data
 
