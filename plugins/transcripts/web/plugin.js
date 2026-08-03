@@ -25,7 +25,16 @@
     })
 
     function mount(ctx, el) {
-        var state = { systems: [], systemSettings: {}, talkgroupSettings: {}, open: false, loaded: false }
+        var state = {
+            systems: [],
+            systemSettings: {},
+            talkgroupSettings: {},
+            provider: '',
+            promptMaxChars: 896,
+            globalPrompt: '',
+            open: false,
+            loaded: false,
+        }
 
         var root = document.createElement('div')
         root.className = 'rdio-transcripts-admin'
@@ -66,8 +75,9 @@
             intro.className = 'tx-note'
             intro.textContent =
                 'A prompt biases Whisper toward the vocabulary of one system — unit identifiers, ' +
-                'street names, agency abbreviations. A system with no prompt of its own falls back ' +
-                'to the global one in this plugin’s settings.'
+                'street names, agency abbreviations. A system left blank falls back to the global ' +
+                'prompt in this plugin’s settings, and a system prompt replaces it rather than ' +
+                'adding to it. The same ' + state.promptMaxChars + '-character limit applies to both.'
             body.appendChild(intro)
 
             if (!state.systems.length) {
@@ -132,10 +142,46 @@
             prompt.rows = 3
             prompt.placeholder = 'Unit IDs, street names, agency names… (leave blank to use the global prompt)'
             prompt.value = settings.prompt || ''
+            wrap.appendChild(prompt)
+
+            // Not a maxlength. Only Groq enforces the cap, and it does so by
+            // trimming from the front at transcription time — so a hard limit
+            // here would block prompts another provider accepts, while saying
+            // nothing about what actually happens when one is too long.
+            var counter = document.createElement('div')
+            counter.className = 'tx-count'
+            wrap.appendChild(counter)
+
+            var updateCounter = function () {
+                var length = prompt.value.length
+                var over = length - state.promptMaxChars
+
+                // Blank is a real setting, not an empty field, so it says which
+                // prompt the system will actually be transcribed with.
+                if (!length) {
+                    counter.classList.remove('tx-over')
+                    counter.textContent = state.globalPrompt
+                        ? 'Using the global prompt (' + state.globalPrompt.length + ' characters)'
+                        : 'No prompt — the global one is blank too'
+                    return
+                }
+
+                counter.textContent = length + ' / ' + state.promptMaxChars
+                counter.classList.toggle('tx-over', over > 0)
+
+                if (over > 0) {
+                    counter.textContent += state.provider === 'groq'
+                        ? ' — Groq will drop the first ' + over + ' characters'
+                        : ' — over the limit other providers enforce'
+                }
+            }
+
             prompt.addEventListener('input', function () {
                 setSystem(system.id, { prompt: prompt.value })
+                updateCounter()
             })
-            wrap.appendChild(prompt)
+
+            updateCounter()
 
             // Talkgroups are a switch only. A per-talkgroup prompt would be more
             // vocabulary than Whisper's prompt window can hold on a system with
@@ -197,6 +243,9 @@
         function load() {
             ctx.api.get('settings').then(function (data) {
                 state.systems = (data && data.systems) || []
+                state.provider = (data && data.provider) || ''
+                state.promptMaxChars = (data && data.promptMaxChars) || state.promptMaxChars
+                state.globalPrompt = (data && data.globalPrompt) || ''
 
                 state.systemSettings = {}
                 ;((data && data.systemSettings) || []).forEach(function (row) {
@@ -281,6 +330,8 @@
             '  border: 1px solid rgba(var(--line-rgb, 148,163,184), 0.4); border-radius: 6px;',
             '  background: rgba(var(--surface-deep-rgb, 2,6,23), 0.5); color: var(--text-pale, #f1f5f9);',
             '  font: inherit; font-size: 12px; resize: vertical; box-sizing: border-box; }',
+            '.rdio-transcripts-admin .tx-count { margin-top: 4px; font-size: 11px; opacity: 0.65; }',
+            '.rdio-transcripts-admin .tx-count.tx-over { color: var(--state-danger-text-dim, #fca5a5); opacity: 1; }',
             '.rdio-transcripts-admin .tx-talkgroups { margin-top: 8px; font-size: 12px; }',
             '.rdio-transcripts-admin .tx-talkgroups summary { cursor: pointer; opacity: 0.75; }',
             '.rdio-transcripts-admin .tx-talkgroup { display: flex; align-items: center; gap: 6px; padding: 3px 0 3px 16px; cursor: pointer; }',

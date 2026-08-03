@@ -838,6 +838,13 @@ rdio.routes.register('GET', 'settings', function (req) {
             systems: rdio.systems.list(),
             systemSettings: systems,
             talkgroupSettings: talkgroups,
+            // A per-system prompt is subject to the same cap as the global one,
+            // and on Groq an over-long prompt is silently trimmed from the front
+            // at transcription time. The editor needs all three to say so before
+            // the prompt is saved rather than after calls come back wrong.
+            provider: activeProvider(),
+            promptMaxChars: PROMPT_MAX_CHARS,
+            globalPrompt: String(cfg('prompt') || '').trim(),
         },
     }
 })
