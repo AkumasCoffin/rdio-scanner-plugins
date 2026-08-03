@@ -72,10 +72,10 @@ This plugin's settings, and values published to the webapp.
 
 SQL against any table in the database, core's included.
 
-- `query(sql, args)`
-- `exec(sql, args)`
-- `queryAsync(sql, args)`
-- `execAsync(sql, args)`
+- `query(sql, args) — blocks this plugin's event loop while it runs`
+- `exec(sql, args) — blocks this plugin's event loop while it runs`
+- `queryAsync(sql, args) — returns a promise; the loop keeps running`
+- `execAsync(sql, args) — returns a promise; the loop keeps running`
 
 ### `rdio.calls`
 
@@ -84,7 +84,7 @@ Read calls and audio, publish fields onto them, and create new ones.
 - `get(id, {audio})`
 - `search(options)`
 - `findId(system, talkgroup, dateTime)`
-- `update(id, fields)`
+- `update(id, {audio, audioName, audioType}) — the write path for a call you reprocessed; nothing else about a call is changeable, use extendField to add to one`
 - `extendField(spec)`
 - `create({system, talkgroup, audio, dateTime, audioName, audioType, meta}) — goes in the same door an upload does, so blacklists, duplicate detection, conversion and every extension point apply`
 
@@ -149,20 +149,20 @@ Hashing and encoding, which JavaScript does not provide.
 
 ### `rdio.audio`
 
-Decode, analyse and re-encode call audio. Needs ffmpeg installed.
+Decode, analyse and re-encode call audio. Needs ffmpeg installed. Everything here returns a promise except goertzel.
 
 - `probe(data) — duration, codec, sample rate, channels`
-- `decode(data, {sampleRate, channels}) — 16-bit PCM as an Int16Array`
-- `encode(samples, {sampleRate, channels, format})`
+- `decode(data, {sampleRate, channels}) — {sampleRate, channels, count, samples}, where samples is an ArrayBuffer of signed 16-bit little-endian PCM. Read it with `new Int16Array(result.samples)``
+- `encode(samples, {sampleRate, channels, format}) — an ArrayBuffer. The default format is lossy, so pass {format: 'wav'} if you need decode/encode to round-trip exactly`
 - `convert(data, {format, bitrate, sampleRate, normalize, filter})`
-- `goertzel(samples, frequencies, {sampleRate, windowSize}) — energy per window, for tone detection`
+- `goertzel(samples, frequencies, {sampleRate, windowSize}) — energy per window, for tone detection. The only one here that answers synchronously`
 
 ### `rdio.http`
 
 Outbound requests, including multipart uploads.
 
-- `request(options)`
-- `multipart(options)`
+- `request({url, method, headers, body, timeoutMs, binary}) — returns a promise; pass binary for an ArrayBuffer body instead of a string, and check `truncated``
+- `multipart({url, headers, fields, files, timeoutMs, binary}) — the same, for uploads`
 
 ### `rdio.routes`
 
@@ -218,54 +218,54 @@ Publish an extension point of your own.
 
 ### Lifecycle
 
-| Point | Timeout | Notes |
-|---|---|---|
-| `startup` | default | After the plugin loads and its tables exist. Fires per plugin, in load order, so this is the wrong place to ask what else is running — use `plugins.ready`. |
-| `shutdown` | default | The server is stopping. Best effort. |
-| `tick` | default | Hourly, alongside the built-in maintenance run. |
-| `config.changed` | default | This plugin's settings were saved. |
-| `client.connect` | default | A listener connected. Fires once the client is registered, which is after its first configuration has been sent — use `client.config` to change what that first payload contains. |
-| `client.disconnect` | default | A listener disconnected. |
+| Point | Verbs | Timeout | Notes |
+|---|---|---|---|
+| `startup` | `on` | default | After the plugin loads and its tables exist. Fires per plugin, in load order, so this is the wrong place to ask what else is running — use `plugins.ready`. |
+| `shutdown` | `on` | default | The server is stopping. Best effort. |
+| `tick` | `on` | default | Hourly, alongside the built-in maintenance run. |
+| `config.changed` | `on` | default | This plugin's settings were saved. |
+| `client.connect` | `on` | default | A listener connected. Fires once the client is registered, which is after its first configuration has been sent — use `client.config` to change what that first payload contains. |
+| `client.disconnect` | `on` | default | A listener disconnected. |
 
 ### Ingest
 
-| Point | Timeout | Notes |
-|---|---|---|
-| `call.receive` | 5s | A call arrived, before its system or talkgroup has been resolved. Carries audio. Rewrite `system` or `talkgroup` to reroute it, or return `{drop: true}` to discard it before any work is spent. |
-| `call.accept` | 1s | The call is fully resolved and passed the blacklists. Return `{drop: true}` to discard it. Metadata only, no audio. |
-| `call.duplicate` | 1s | Fires only once rdio has already decided the call is a duplicate. Reads inverted from the others: returning nothing leaves the rejection standing, and only `{keep: true}` overrules it — so observing this point cannot accidentally disable duplicate detection. |
-| `call.convert` | default | Audio conversion. Override to replace ffmpeg entirely; return the new `audio`, and `audioType` if it changed. The only point with no fallback, so a failure here stores the call unconverted. |
-| `call.store` | default | Last chance before the write. Carries audio, so this is where processing that must be persisted belongs — normalisation, trimming, re-encoding — as well as a final `{drop: true}`. |
-| `call.stored` | default | The call has an id. Where most work belongs. |
+| Point | Verbs | Timeout | Notes |
+|---|---|---|---|
+| `call.receive` | `on`, `filter` | 5s | A call arrived, before its system or talkgroup has been resolved. Carries audio. Rewrite `system` or `talkgroup` to reroute it, or return `{drop: true}` to discard it before any work is spent. |
+| `call.accept` | `on`, `filter` | 1s | The call is fully resolved and passed the blacklists. Return `{drop: true}` to discard it. Metadata only, no audio. |
+| `call.duplicate` | `on`, `filter` | 1s | Fires only once rdio has already decided the call is a duplicate. Reads inverted from the others: returning nothing leaves the rejection standing, and only `{keep: true}` overrules it — so observing this point cannot accidentally disable duplicate detection. |
+| `call.convert` | `override` | default | Audio conversion. Override to replace ffmpeg entirely; return the new `audio`, and `audioType` if it changed. The only point with no fallback, so a failure here stores the call unconverted. |
+| `call.store` | `on`, `filter` | default | Last chance before the write. Carries audio, so this is where processing that must be persisted belongs — normalisation, trimming, re-encoding — as well as a final `{drop: true}`. |
+| `call.stored` | `on` | default | The call has an id. Where most work belongs. |
 
 ### Delivery
 
-| Point | Timeout | Notes |
-|---|---|---|
-| `call.delay` | default | How long to hold a call before listeners see it. Carries `delaySeconds`, what rdio's own per-system and per-talkgroup settings produced; return a different number to override it, or 0 to release the call at once. A veto here means "do not hold it", not "do not send it" — dropping is what the ingest points are for. |
-| `call.emit` | 250ms | Runs once per listener per call, so it is the hottest point in the server and has a 250ms limit. The native access and livefeed checks have already passed by this point. Return `{drop: true}` to withhold the call from this listener alone. Carries a `client` describing the recipient. |
-| `call.payload` | 250ms | The JSON a call is delivered as. Runs once per call rather than once per listener, because the payload is the same for everyone receiving it — use `rdio.ws` if you genuinely need to say something different to one client. Returned keys are merged as extra fields, so a plugin cannot remove the id or the audio and leave the webapp with a call it cannot play. |
-| `call.emitted` | default | A call finished going out to live listeners. Carries `recipients`, how many received it. |
-| `downstream.send` | default | Runs per downstream per call, before forwarding. Return `{drop: true}` to hold a call back from one downstream without affecting the others or the local listeners. |
-| `client.config` | 250ms | The configuration payload one client receives, in `config`. Runs on connect and on reconfiguration, not per call. This is where a theme ships its settings, and where anything varying by listener reaches the webapp. `groups`, `systems` and `tags` are restored if a result drops them, since a client without those has nothing to show and no way to say why. |
+| Point | Verbs | Timeout | Notes |
+|---|---|---|---|
+| `call.delay` | `on`, `filter` | default | How long to hold a call before listeners see it. Carries `delaySeconds`, what rdio's own per-system and per-talkgroup settings produced; return a different number to override it, or 0 to release the call at once. A veto here means "do not hold it", not "do not send it" — dropping is what the ingest points are for. |
+| `call.emit` | `on`, `filter` | 250ms | Runs once per listener per call, so it is the hottest point in the server and has a 250ms limit. The native access and livefeed checks have already passed by this point. Return `{drop: true}` to withhold the call from this listener alone. Carries a `client` describing the recipient. |
+| `call.payload` | `on`, `filter` | 250ms | The JSON a call is delivered as. Runs once per call rather than once per listener, because the payload is the same for everyone receiving it — use `rdio.ws` if you genuinely need to say something different to one client. Returned keys are merged as extra fields, so a plugin cannot remove the id or the audio and leave the webapp with a call it cannot play. |
+| `call.emitted` | `on` | default | A call finished going out to live listeners. Carries `recipients`, how many received it. |
+| `downstream.send` | `on`, `filter` | default | Runs per downstream per call, before forwarding. Return `{drop: true}` to hold a call back from one downstream without affecting the others or the local listeners. |
+| `client.config` | `on`, `filter` | 250ms | The configuration payload one client receives, in `config`. Runs on connect and on reconfiguration, not per call. This is where a theme ships its settings, and where anything varying by listener reaches the webapp. `groups`, `systems` and `tags` are restored if a result drops them, since a client without those has nothing to show and no way to say why. |
 
 ### Access
 
-| Point | Timeout | Notes |
-|---|---|---|
-| `access.check` | default | A listener presented an access code. `provide` runs only when rdio's own table did not recognise it — return `{ident, systems}` to grant, nothing to refuse — so adding an auth plugin never invalidates the accounts already configured. `filter` always runs and may narrow the grant or refuse it with `{drop: true}`. |
-| `access.scope` | 250ms | What systems and talkgroups a session may see. Runs for every listener once, including on a server with no access codes at all, so it is the point for deciding visibility rather than admission. Return `{systems}` to narrow; `{drop: true}` shows the client nothing rather than disconnecting it. |
-| `apikey.check` | default | An upload presented an API key. Same shape as `access.check`: `provide` covers a key rdio has never seen, `filter` narrows or refuses one it has. |
-| `admin.check` | default | An admin login. `provide` runs only when the local password check failed, so a plugin can add an external directory without ever being able to lock out the local password. `filter` runs on success, which is where a second factor or an address restriction goes. The submitted password is included, because an external directory cannot verify a credential it is not given; it is never logged. |
+| Point | Verbs | Timeout | Notes |
+|---|---|---|---|
+| `access.check` | `on`, `filter`, `provide` | default | A listener presented an access code. `provide` runs only when rdio's own table did not recognise it — return `{ident, systems}` to grant, nothing to refuse — so adding an auth plugin never invalidates the accounts already configured. `filter` always runs and may narrow the grant or refuse it with `{drop: true}`. |
+| `access.scope` | `on`, `filter` | 250ms | What systems and talkgroups a session may see. Runs for every listener once, including on a server with no access codes at all, so it is the point for deciding visibility rather than admission. Return `{systems}` to narrow; `{drop: true}` shows the client nothing rather than disconnecting it. |
+| `apikey.check` | `on`, `filter`, `provide` | default | An upload presented an API key. Same shape as `access.check`: `provide` covers a key rdio has never seen, `filter` narrows or refuses one it has. |
+| `admin.check` | `on`, `filter`, `provide` | default | An admin login. `provide` runs only when the local password check failed, so a plugin can add an external directory without ever being able to lock out the local password. `filter` runs on success, which is where a second factor or an address restriction goes. The submitted password is included, because an external directory cannot verify a credential it is not given; it is never logged. |
 
 ### Data
 
-| Point | Timeout | Notes |
-|---|---|---|
-| `call.search` | 2s | A search before it runs. Carries the query — `q`, `date`, `system`, `talkgroup`, `group`, `tag`, `limit`, `offset`, `sort` — and the `client` asking. Return any of those to narrow it, or `{drop: true}` for an empty result. Deliberately the query and not the results: filtering a page of calls would mean marshalling every row into the runtime on a path a user is waiting on. To contribute searchable data, use `rdio.search.extend`, which core resolves natively in the same SQL. |
-| `call.prune` | default | Retention, once an hour at most. Carries `days` and the `before` cutoff it implies. Return `{days: N}` to change how much is kept, or `{drop: true}` to skip this cycle — skipping is per cycle rather than a switch, so a plugin archiving calls does not have to remember to turn retention back on. Do the archiving on `rdio.schedule`, not here; a prune waiting on an upload would hold the scheduler for as long as it took. |
-| `call.audio` | default | `provide` a call's audio when the database no longer holds it. Only asked when the stored blob is empty, so an install keeping audio normally never reaches a plugin. Return the bytes, or `{audio, audioType, audioName}` if cold storage re-encoded them. This is what makes tiered retention possible: blank the column, keep the row, answer here. |
-| `config.save` | default | An admin configuration about to be written, in `config`. Observe it to notice that the systems a plugin mirrors have changed; filter it to refuse a configuration the plugin cannot work with, in which case nothing is written and the running configuration stays untouched. |
+| Point | Verbs | Timeout | Notes |
+|---|---|---|---|
+| `call.search` | `on`, `filter` | 2s | A search before it runs. Carries the query — `q`, `date`, `system`, `talkgroup`, `group`, `tag`, `limit`, `offset`, `sort` — and the `client` asking. Return any of those to narrow it, or `{drop: true}` for an empty result. Deliberately the query and not the results: filtering a page of calls would mean marshalling every row into the runtime on a path a user is waiting on. To contribute searchable data, use `rdio.search.extend`, which core resolves natively in the same SQL. |
+| `call.prune` | `on`, `filter` | default | Retention, once an hour at most. Carries `days` and the `before` cutoff it implies. Return `{days: N}` to change how much is kept, or `{drop: true}` to skip this cycle — skipping is per cycle rather than a switch, so a plugin archiving calls does not have to remember to turn retention back on. Do the archiving on `rdio.schedule`, not here; a prune waiting on an upload would hold the scheduler for as long as it took. |
+| `call.audio` | `provide` | default | `provide` a call's audio when the database no longer holds it. Only asked when the stored blob is empty, so an install keeping audio normally never reaches a plugin. Return the bytes, or `{audio, audioType, audioName}` if cold storage re-encoded them. This is what makes tiered retention possible: blank the column, keep the row, answer here. |
+| `config.save` | `on`, `filter` | default | An admin configuration about to be written, in `config`. Observe it to notice that the systems a plugin mirrors have changed; filter it to refuse a configuration the plugin cannot work with, in which case nothing is written and the running configuration stays untouched. |
 
 ## Configuration models
 
