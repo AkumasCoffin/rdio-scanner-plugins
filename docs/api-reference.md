@@ -137,6 +137,13 @@ Run a program. Returns a promise with its exit code and output.
 
 - `rdio.exec(name, args, options)`
 
+### `rdio.net`
+
+TCP and UDP, so a plugin can be a source of calls rather than only a reaction to them. Messages arrive on your event loop like any other handler.
+
+- `listen(network, address, handler) — network is tcp or udp. The handler gets {data, text, remote, reply}; reply writes back on the same connection or to the same sender. Returns {network, address, close()}, where address is what was actually bound so port 0 is usable`
+- `send(network, address, data, {timeoutMs, reply}) — one write to something already listening; returns a promise, carrying the response when reply is set`
+
 ### `rdio.crypto`
 
 Hashing and encoding, which JavaScript does not provide.
@@ -236,6 +243,8 @@ Publish an extension point of your own.
 | Point | Verbs | Timeout | Notes |
 |---|---|---|---|
 | `call.receive` | `on`, `filter` | 5s | A call arrived, before its system or talkgroup has been resolved. Carries audio. Rewrite `system` or `talkgroup` to reroute it, or return `{drop: true}` to discard it before any work is spent. |
+| `call.system` | `on`, `filter`, `provide` | default | The call's system is being resolved. `provide` when rdio does not know this system id and you do — return `{label}` and it is created; `filter` to rename one it already has, for this call. Meant for a plugin that is itself an ingest source: it knows what it is feeding in, and without this it could only watch rdio call it "System 3". |
+| `call.talkgroup` | `on`, `filter`, `provide` | default | The same for the talkgroup. Return any of `{label, name, group, tag}`; the group and tag are created if they do not exist, exactly as auto-populate does. `provide` fires only when the talkgroup is unknown, so an ingest plugin names what it creates rather than correcting it afterwards. |
 | `call.accept` | `on`, `filter` | 1s | The call is fully resolved and passed the blacklists. Return `{drop: true}` to discard it. Metadata only, no audio. |
 | `call.duplicate` | `on`, `filter` | 1s | Fires only once rdio has already decided the call is a duplicate. Reads inverted from the others: returning nothing leaves the rejection standing, and only `{keep: true}` overrules it — so observing this point cannot accidentally disable duplicate detection. |
 | `call.convert` | `override` | default | Audio conversion. Override to replace ffmpeg entirely; return the new `audio`, and `audioType` if it changed. The only point with no fallback, so a failure here stores the call unconverted. |
