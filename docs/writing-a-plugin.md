@@ -135,9 +135,13 @@ plugin so names cannot collide:
 rdio.db.exec('insert into `notes` (`callId`, `note`) values (?, ?)', [id, text])
 ```
 
-You write `notes`; the server maps it to the real name. SQL works against any
-table in the database, core's included — the mapping is for your own tables, not
-a fence around them.
+You write `notes`; the server maps it to the real name. The mapping applies to
+backtick-quoted identifiers that match a table you declared — not to text inside
+string literals or comments, so a row whose body mentions `` `notes` `` keeps the
+words you wrote.
+
+SQL works against any table in the database, core's included. The mapping is a
+convenience for your own tables, not a fence around anyone else's.
 
 Two other places to put things:
 
