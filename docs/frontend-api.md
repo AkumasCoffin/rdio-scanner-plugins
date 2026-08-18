@@ -177,8 +177,7 @@ do not. Target these rather than class names and your plugin keeps working acros
 |---|---|
 | `[data-rdio="status"]` | The status bar above the LCD |
 | `[data-rdio="branding"]` | The branding text in the status bar |
-| `[data-rdio="led"]` | The activity LED |
-| `[data-rdio="led2"]` | The second activity LED; only rendered when the Dual Color LED option is enabled |
+| `[data-rdio="led"]` | The activity LED; widens into a two-color lightbar when the Dual Color LED option is enabled |
 | `[data-rdio="lcd"]` | The LCD panel |
 | `[data-rdio="lcd-transcript"]` | The live transcript block inside the LCD |
 | `[data-rdio="history"]` | The call history table |
