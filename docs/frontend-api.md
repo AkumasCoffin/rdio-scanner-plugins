@@ -52,7 +52,7 @@ ctx.slots.mount('lcd-below', function (el, data) {
 | `lcd-sidebar` | Beside the main LCD panel |
 | `call-row-extra` | Appended to each call history row; `data` is the call |
 | `search-row-extra` | Appended to each search result row; `data` is the call |
-| `admin-panel` | The admin panel, above Logout. Build your own `<mat-expansion-panel>` markup, or anything else. |
+| `admin-panel` | The admin's Plugins tab, under the plugin list. Build whatever markup you like — the admin is a tab shell, so there is no accordion to match. |
 
 The factory is called with a container element you own. It is re-invoked when `data` changes and torn
 down when the plugin is disabled.
@@ -221,14 +221,18 @@ button is added or reworded.
 
 | Anchor | Element |
 |---|---|
-| `[data-rdio="admin"]` | The admin panel accordion |
+| `[data-rdio="admin"]` | The admin shell (header, tab bar and the active tab's content) |
 | `[data-rdio="admin-login"]` | The login form |
-| `[data-rdio="admin-stats"]` | The Statistics section |
-| `[data-rdio="admin-config"]` | The Config section |
-| `[data-rdio="admin-plugins"]` | The Plugins section |
-| `[data-rdio="admin-logs"]` | The Logs section |
-| `[data-rdio="admin-tools"]` | The Tools section |
-| `[data-rdio="admin-logout"]` | The Logout row |
+| `[data-rdio="admin-stats"]` | The Dashboard tab's content |
+| `[data-rdio="admin-config"]` | The config host, shared by the Options / Systems / Groups & Tags / Access / API Keys / Dirwatch / Downstreams tabs |
+| `[data-rdio="admin-plugins"]` | The Plugins tab's content |
+| `[data-rdio="admin-logs"]` | The Logs tab's content |
+| `[data-rdio="admin-tools"]` | The Tools tab's content |
+| `[data-rdio="admin-logout"]` | The Logout button in the header |
+
+Only the active tab's section is in the DOM, so an anchor for a tab the user has not opened is
+absent rather than hidden — attach with `ctx.dom.attach(selector, ...)`, which re-runs as tabs
+change, rather than querying once at startup.
 
 The OBS stream overlay has no slot of its own. Its item types are a fixed set the component owns, so
 there is nothing to register into -- reach it with `ctx.dom.attach('.stream-item', ...)` and style it

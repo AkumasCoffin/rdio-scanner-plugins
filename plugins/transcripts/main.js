@@ -30,6 +30,18 @@ var PENDING_CAP = 1000
 // the call locally instead.
 var FALLBACK_TTL_MS = 2 * 60 * 1000
 
+// How many due fallbacks one sweep may process, and how many may be tracked at
+// all.
+//
+// Everything this plugin does shares one event loop, and each due entry costs a
+// synchronous database read before anything else can run. An uncapped sweep
+// therefore scales its own stall with the size of the backlog, and once a tick
+// costs more than the interval between ticks the plugin never catches up — it
+// stops answering its own HTTP routes while looking, from the outside, simply
+// slow. The leftovers are not lost; they are handled by the next tick.
+var SWEEP_MAX_PER_TICK = 50
+var FALLBACK_CAP = 5000
+
 var PROVIDERS = {
     groq: { url: 'groqBaseUrl', key: 'groqApiKey', model: 'groqModel' },
     openai: { url: 'openaiBaseUrl', key: 'openaiApiKey', model: 'openaiModel' },
@@ -470,8 +482,21 @@ function drainQueue() {
     while (queue.length && inFlight < limit) {
         var job = queue.shift()
         inFlight++
-        runJob(job)
+        startJob(job)
     }
+}
+
+// Each job starts on its own tick.
+//
+// runJob loads the call's audio synchronously, and the event loop it runs on is
+// the same one serving this plugin's HTTP routes. Starting the whole batch in
+// one tick meant up to `concurrency` blob reads back to back with nothing able
+// to run in between — the queue drained a little sooner and every route handler
+// waiting behind it paid for it.
+function startJob(job) {
+    setTimeout(function () {
+        runJob(job)
+    }, 0)
 }
 
 function runJob(job) {
@@ -582,17 +607,41 @@ function scheduleFallback(call) {
         system: call.system,
         talkgroup: call.talkgroup,
     }
+
+    // Bounded like `pending` is. Without this the set grows with every call an
+    // upstream promised and never delivered, and both the memory and the sweep
+    // that walks it grow with it, indefinitely.
+    var keys = Object.keys(fallbackTimers)
+    if (keys.length <= FALLBACK_CAP) return
+
+    keys.sort(function (a, b) {
+        return fallbackTimers[a].dueAt - fallbackTimers[b].dueAt
+    })
+
+    var drop = keys.length - FALLBACK_CAP
+    for (var i = 0; i < drop; i++) {
+        delete fallbackTimers[keys[i]]
+    }
+
+    rdio.log('warn', 'dropped ' + drop + ' fallback timers over the cap of ' + FALLBACK_CAP +
+        '; upstream transcripts are not arriving and local transcription is not keeping up')
 }
 
 // Swept on a timer rather than one setTimeout per call: the number of pending
 // timers tracks ingest rate, and a sweep is one pass regardless.
+//
+// Bounded per tick — see SWEEP_MAX_PER_TICK. Whatever is left over is still
+// due on the next tick, so nothing is dropped by stopping early.
 function sweepFallbacks() {
     var now = Date.now()
+    var handled = 0
 
     for (var key in fallbackTimers) {
+        if (handled >= SWEEP_MAX_PER_TICK) break
         if (fallbackTimers[key].dueAt > now) continue
 
         delete fallbackTimers[key]
+        handled++
 
         // Object keys are strings. Postgres will not compare an integer column
         // against a text parameter, so this has to be a number before it goes

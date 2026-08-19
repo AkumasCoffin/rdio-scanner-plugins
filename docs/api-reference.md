@@ -176,7 +176,7 @@ Outbound requests, including multipart uploads.
 
 ### `rdio.routes`
 
-Serve HTTP endpoints.
+Serve HTTP endpoints. A handler runs on your plugin's one event loop, so slow work in it delays every other thing your plugin does — including its other requests. Return a promise and do the waiting off the loop. A handler has 90 seconds; past that, or once the loop is far enough behind, the caller is answered without you (503, and it is told to retry).
 
 - `register(method, path, handler)`
 - `registerAbsolute(path, handler)`
