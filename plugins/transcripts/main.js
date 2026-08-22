@@ -514,6 +514,35 @@ function transcribe(call, attempt, tried, lastError, done) {
     })
 }
 
+// A failed job used to be dropped on the spot. Production numbers said how
+// wrong that was: ninety percent of failures were "all keys paused" — every
+// call landing inside a rate-limit backoff window lost its transcript forever.
+// Transient failures now go back on the queue after a delay sized from the
+// backoff the provider asked for.
+var RETRY_BASE_MS = 75 * 1000
+var RETRY_MAX = 8
+
+function retryableError(err) {
+    var text = String(err)
+
+    return text.indexOf('skipped:') === 0
+        || text.indexOf('rate limited') !== -1
+        || text.indexOf('network error') === 0
+        || /api status 5\d\d/.test(text)
+}
+
+function retryDelayMs(err) {
+    // "all keys paused ~43s" carries the provider's own backoff; sit that out
+    // plus a little, clamped to something sane either way.
+    var match = /~(\d+)s/.exec(String(err))
+    if (match) {
+        var ms = Number(match[1]) * 1000 + 5000
+        return Math.min(Math.max(ms, 30000), 300000)
+    }
+
+    return RETRY_BASE_MS
+}
+
 function drainQueue() {
     var limit = Number(cfg('concurrency')) || 8
 
@@ -538,6 +567,14 @@ function startJob(job) {
 }
 
 function runJob(job) {
+    // A retry may have been overtaken by the upstream's transcript push while
+    // it waited; finishing the local job anyway would overwrite it.
+    if (storedTranscript(job.id)) {
+        inFlight--
+        drainQueue()
+        return
+    }
+
     var call = rdio.calls.get(job.id, { audio: true })
 
     if (!call || !call.audio || call.audio.length <= MIN_AUDIO_BYTES) {
@@ -551,6 +588,21 @@ function runJob(job) {
 
         try {
             if (err) {
+                if (retryableError(err) && (job.retries || 0) < RETRY_MAX) {
+                    job.retries = (job.retries || 0) + 1
+
+                    var delay = retryDelayMs(err)
+                    rdio.log('info', 'transcription retry ' + job.retries + '/' + RETRY_MAX +
+                        ' for call ' + job.id + ' in ' + Math.round(delay / 1000) + 's (' + err + ')')
+
+                    setTimeout(function () {
+                        queue.push(job)
+                        drainQueue()
+                    }, delay)
+
+                    return
+                }
+
                 var level = String(err).indexOf('skipped:') === 0 ? 'info' : 'warn'
                 rdio.log(level, 'transcription failed for call ' + job.id + ': ' + err)
                 return
