@@ -227,6 +227,44 @@ function parseBackoff(headers, body) {
 // upstream but self-hosted servers often don't, and on near-silent audio
 // Whisper emits runs of language tokens that would otherwise be stored, shown
 // and forwarded as a transcript.
+// Whisper on near-silent audio, left to auto-detect the language, often
+// "hears" another language entirely and emits fluent hallucinations in it —
+// Korean thank-yous are the classic. When this instance's Language setting
+// names a Latin-script language, a transcript written mostly in some other
+// script cannot be a transcription of that traffic, so it is treated the same
+// as silence. Keyed on the Language setting deliberately: an instance that
+// leaves it empty has told us nothing, and gets no opinion forced on it.
+var LATIN_SCRIPT_LANGS = {
+    en: true, es: true, fr: true, de: true, it: true, pt: true, nl: true,
+    sv: true, no: true, da: true, fi: true, pl: true, cs: true, ro: true,
+    hu: true, tr: true, id: true, ms: true, vi: true, sw: true, tl: true,
+}
+
+function foreignHallucination(text) {
+    var lang = String(cfg('language') || '').trim().toLowerCase()
+    if (!LATIN_SCRIPT_LANGS[lang]) return false
+
+    var latin = 0
+    var foreign = 0
+
+    for (var i = 0; i < text.length; i++) {
+        var c = text.charCodeAt(i)
+        if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 0xC0 && c <= 0x24F)) {
+            latin++
+        } else if (
+            (c >= 0x0370 && c <= 0x06FF) ||  // greek, cyrillic, hebrew, arabic
+            (c >= 0x0900 && c <= 0x0E7F) ||  // indic scripts, thai
+            (c >= 0x3040 && c <= 0x30FF) ||  // kana
+            (c >= 0x4E00 && c <= 0x9FFF) ||  // cjk
+            (c >= 0xAC00 && c <= 0xD7AF)     // hangul
+        ) {
+            foreign++
+        }
+    }
+
+    return foreign > latin
+}
+
 function sanitize(text) {
     return String(text || '')
         .replace(/<\|[^|]*\|>/g, ' ')
@@ -526,6 +564,11 @@ function runJob(job) {
                 return
             }
 
+            if (foreignHallucination(text)) {
+                rdio.log('info', 'transcription discarded for call ' + job.id + ' (wrong-script hallucination): ' + text)
+                return
+            }
+
             storeTranscript(job.id, text)
             emitTranscript(job.id, call.system, call.talkgroup, text)
             rdio.log('info', 'transcribed call ' + job.id + ' (' + text.length + ' chars)')
@@ -789,6 +832,12 @@ rdio.routes.registerAbsolute('/api/call-transcript', function (req) {
         rdio.log('info', 'transcript push ignored (no usable text after sanitize): [' + auth.ident +
             '] system=' + body.system + ' talkgroup=' + body.talkgroup)
         return { status: 200, body: 'Transcript ignored (no usable text).\n' }
+    }
+
+    if (foreignHallucination(text)) {
+        rdio.log('info', 'transcript push ignored (wrong-script hallucination): [' + auth.ident +
+            '] system=' + body.system + ' talkgroup=' + body.talkgroup + ': ' + text)
+        return { status: 200, body: 'Transcript ignored (hallucination guard).' }
     }
 
     rdio.log('info', 'transcript push received: [' + auth.ident + '] system=' + body.system +
