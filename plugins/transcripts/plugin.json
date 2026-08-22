@@ -25,20 +25,12 @@
       "help": "Which transcription backend to use. Each provider's URL, key and model are stored separately, so switching between them does not lose credentials. Only the settings for the selected provider are shown.",
       "default": "groq",
       "options": [
-        {
-          "value": "groq",
-          "label": "Groq"
-        },
-        {
-          "value": "openai",
-          "label": "Whisper (OpenAI)"
-        },
-        {
-          "value": "whisper-selfhosted",
-          "label": "Whisper (self-hosted)"
-        }
+        { "value": "groq", "label": "Groq" },
+        { "value": "openai", "label": "Whisper (OpenAI)" },
+        { "value": "whisper-selfhosted", "label": "Whisper (self-hosted)" }
       ]
     },
+
     {
       "key": "groqBaseUrl",
       "type": "text",
@@ -46,12 +38,7 @@
       "help": "OpenAI-compatible base URL. The server appends /audio/transcriptions itself.",
       "default": "https://api.groq.com/openai/v1",
       "placeholder": "https://api.groq.com/openai/v1",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "groq"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["groq"] }
     },
     {
       "key": "groqApiKey",
@@ -59,12 +46,7 @@
       "label": "Groq — API key(s)",
       "help": "Sent as Authorization: Bearer <key>. Several keys may be given, separated by commas, semicolons or newlines — requests round-robin across them and each backs off independently on 429.",
       "placeholder": "gsk_xxxx, gsk_yyyy, …",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "groq"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["groq"] }
     },
     {
       "key": "groqModel",
@@ -73,13 +55,9 @@
       "help": "Any model identifier Groq accepts on its /audio/transcriptions endpoint.",
       "default": "whisper-large-v3-turbo",
       "placeholder": "whisper-large-v3-turbo",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "groq"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["groq"] }
     },
+
     {
       "key": "openaiBaseUrl",
       "type": "text",
@@ -87,12 +65,7 @@
       "help": "The server appends /audio/transcriptions itself.",
       "default": "https://api.openai.com/v1",
       "placeholder": "https://api.openai.com/v1",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "openai"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["openai"] }
     },
     {
       "key": "openaiApiKey",
@@ -100,12 +73,7 @@
       "label": "Whisper (OpenAI) — API key(s)",
       "help": "Secret API key (sk-…), sent as Authorization: Bearer. Several may be given, separated by commas, semicolons or newlines.",
       "placeholder": "sk-…",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "openai"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["openai"] }
     },
     {
       "key": "openaiModel",
@@ -114,25 +82,16 @@
       "help": "Any model identifier OpenAI accepts on its /audio/transcriptions endpoint.",
       "default": "whisper-1",
       "placeholder": "whisper-1",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "openai"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["openai"] }
     },
+
     {
       "key": "whisperBaseUrl",
       "type": "text",
       "label": "Whisper (self-hosted) — base URL",
       "help": "URL of your own Whisper server — whisper.cpp, faster-whisper-server, or anything else exposing an OpenAI-compatible /audio/transcriptions endpoint. Enter only the base path; the server appends the rest. Required — there is no default.",
       "placeholder": "http://localhost:8000/v1",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "whisper-selfhosted"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["whisper-selfhosted"] }
     },
     {
       "key": "whisperApiKey",
@@ -140,12 +99,7 @@
       "label": "Whisper (self-hosted) — API key(s)",
       "help": "Optional. Leave blank if your server needs no authentication.",
       "placeholder": "(optional)",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "whisper-selfhosted"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["whisper-selfhosted"] }
     },
     {
       "key": "whisperModel",
@@ -154,13 +108,9 @@
       "help": "Whatever model identifier your server expects.",
       "default": "whisper-1",
       "placeholder": "whisper-1",
-      "showIf": {
-        "key": "provider",
-        "equals": [
-          "whisper-selfhosted"
-        ]
-      }
+      "showIf": { "key": "provider", "equals": ["whisper-selfhosted"] }
     },
+
     {
       "key": "language",
       "type": "text",
@@ -221,54 +171,24 @@
     {
       "name": "calls",
       "columns": [
-        {
-          "name": "callId",
-          "type": "int",
-          "primaryKey": true
-        },
-        {
-          "name": "transcript",
-          "type": "text"
-        }
+        { "name": "callId", "type": "int", "primaryKey": true },
+        { "name": "transcript", "type": "text" }
       ]
     },
     {
       "name": "systems",
       "columns": [
-        {
-          "name": "systemId",
-          "type": "int",
-          "primaryKey": true
-        },
-        {
-          "name": "transcribe",
-          "type": "boolean",
-          "default": true
-        },
-        {
-          "name": "prompt",
-          "type": "text"
-        }
+        { "name": "systemId", "type": "int", "primaryKey": true },
+        { "name": "transcribe", "type": "boolean", "default": true },
+        { "name": "prompt", "type": "text" }
       ]
     },
     {
       "name": "talkgroups",
       "columns": [
-        {
-          "name": "systemId",
-          "type": "int",
-          "primaryKey": true
-        },
-        {
-          "name": "talkgroupId",
-          "type": "int",
-          "primaryKey": true
-        },
-        {
-          "name": "transcribe",
-          "type": "boolean",
-          "default": true
-        }
+        { "name": "systemId", "type": "int", "primaryKey": true },
+        { "name": "talkgroupId", "type": "int", "primaryKey": true },
+        { "name": "transcribe", "type": "boolean", "default": true }
       ]
     }
   ]
