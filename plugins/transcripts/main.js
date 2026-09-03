@@ -18,6 +18,16 @@ var PROMPT_MAX_CHARS = 896
 // A call with no more audio than a WAV header has nothing to transcribe.
 var MIN_AUDIO_BYTES = 44
 
+// The longest inbound transcript worth reading.
+//
+// sanitize and the hallucination guard are both O(n) character walks in an
+// interpreted runtime, run on the event loop before anything else can happen,
+// and the push body has no size limit of its own. A transcript of a radio call
+// is a few hundred characters; anything past this is a bug or an attack, and
+// truncating beats spending seconds of everyone else's time proving it is
+// rubbish.
+var MAX_INBOUND_TRANSCRIPT = 20000
+
 var HTTP_TIMEOUT_MS = 120000
 
 // How long a transcript that arrived before its call is held. Comfortably
@@ -291,8 +301,18 @@ function audioFilename(call) {
 }
 
 function promptFor(systemId) {
-    var rows = rdio.db.query('select `prompt` from `systems` where `systemId` = ?', [systemId])
-    var prompt = rows.length && rows[0].prompt ? String(rows[0].prompt).trim() : ''
+    // From the settings cache, not the database: this is read for every
+    // transcription attempt, and a blocking read here lands inside the promise
+    // continuation where it is charged to the loop exactly as anywhere else.
+    // A cold cache falls through to the global prompt, which is what a system
+    // with no prompt of its own uses anyway.
+    var prompt = ''
+
+    if (transcribeFlags) {
+        prompt = transcribeFlags.prompts[systemId] || ''
+    } else {
+        loadTranscribeFlags()
+    }
 
     if (!prompt) prompt = String(cfg('prompt') || '').trim()
     if (!prompt) return ''
@@ -314,20 +334,74 @@ function promptFor(systemId) {
 // Settings lookups
 // ---------------------------------------------------------------------------
 
+// The per-system and per-talkgroup switches, held in memory.
+//
+// These are read for every ingested call, and they are configuration — they
+// change when someone edits the settings page, not as calls arrive. Reading
+// them from the database per call meant two blocking queries on the event loop
+// before anything else could happen, which is where the one-second `call.stored`
+// holds came from. Both tables are small enough to hold whole.
+//
+// null means "not loaded yet"; the loader replaces both together so a lookup
+// never sees one table refreshed and the other stale.
+var transcribeFlags = null
+var transcribeFlagsLoading = false
+
+function loadTranscribeFlags() {
+    if (transcribeFlagsLoading) return
+    transcribeFlagsLoading = true
+
+    Promise.all([
+        rdio.db.queryAsync('select `systemId`, `transcribe`, `prompt` from `systems`', []),
+        rdio.db.queryAsync('select `systemId`, `talkgroupId`, `transcribe` from `talkgroups`', []),
+    ]).then(function (results) {
+        var flags = { systems: {}, talkgroups: {}, prompts: {} }
+
+        results[0].forEach(function (row) {
+            flags.systems[row.systemId] = !!row.transcribe
+            if (row.prompt) flags.prompts[row.systemId] = String(row.prompt).trim()
+        })
+
+        results[1].forEach(function (row) {
+            flags.talkgroups[row.systemId + ':' + row.talkgroupId] = !!row.transcribe
+        })
+
+        transcribeFlags = flags
+        transcribeFlagsLoading = false
+    }).catch(function (err) {
+        transcribeFlagsLoading = false
+        rdio.log('warn', 'could not load transcribe settings: ' + err)
+    })
+}
+
+function invalidateTranscribeFlags() {
+    transcribeFlags = null
+    loadTranscribeFlags()
+}
+
+// Absent means "not configured", and the historical default is on — for a
+// missing row and for a cache that has not loaded yet alike. Being briefly
+// permissive at startup transcribes a call someone had switched off; being
+// briefly strict would lose one that should have been transcribed, and that is
+// the one that cannot be recovered later.
 function systemTranscribes(systemId) {
-    var rows = rdio.db.query('select `transcribe` from `systems` where `systemId` = ?', [systemId])
-    // Absent means "not configured", and the historical default is on.
-    if (!rows.length) return true
-    return !!rows[0].transcribe
+    if (!transcribeFlags) {
+        loadTranscribeFlags()
+        return true
+    }
+
+    var value = transcribeFlags.systems[systemId]
+    return value === undefined ? true : value
 }
 
 function talkgroupTranscribes(systemId, talkgroupId) {
-    var rows = rdio.db.query(
-        'select `transcribe` from `talkgroups` where `systemId` = ? and `talkgroupId` = ?',
-        [systemId, talkgroupId]
-    )
-    if (!rows.length) return true
-    return !!rows[0].transcribe
+    if (!transcribeFlags) {
+        loadTranscribeFlags()
+        return true
+    }
+
+    var value = transcribeFlags.talkgroups[systemId + ':' + talkgroupId]
+    return value === undefined ? true : value
 }
 
 function enabled() {
@@ -344,27 +418,61 @@ function enabled() {
 // Storage
 // ---------------------------------------------------------------------------
 
+// Everything below is async.
+//
+// The synchronous forms of these ran on the event loop, where a wait for a free
+// database connection is a wait for the whole plugin — and the connection pool
+// is shared with core's ingest, so a busy server made a three-statement store
+// into a minute and a half of the plugin answering nothing at all. The async
+// variants do the same work on a goroutine and hand the result back, which is
+// the whole difference between "this call is slow" and "this plugin is down".
 function storedTranscript(callId) {
-    var rows = rdio.db.query('select `transcript` from `calls` where `callId` = ?', [callId])
-    return rows.length ? String(rows[0].transcript || '') : ''
+    return rdio.db.queryAsync('select `transcript` from `calls` where `callId` = ?', [callId])
+        .then(function (rows) {
+            return rows.length ? String(rows[0].transcript || '') : ''
+        })
 }
 
 function storeTranscript(callId, text) {
-    var rows = rdio.db.query('select `callId` from `calls` where `callId` = ?', [callId])
-    if (rows.length) {
-        rdio.db.exec('update `calls` set `transcript` = ? where `callId` = ?', [text, callId])
-    } else {
-        rdio.db.exec('insert into `calls` (`callId`, `transcript`) values (?, ?)', [callId, text])
-    }
+    return rdio.db.queryAsync('select `callId` from `calls` where `callId` = ?', [callId])
+        .then(function (rows) {
+            if (rows.length) {
+                return rdio.db.execAsync('update `calls` set `transcript` = ? where `callId` = ?', [text, callId])
+            }
+
+            return rdio.db.execAsync('insert into `calls` (`callId`, `transcript`) values (?, ?)', [callId, text])
+        })
 }
 
 // First write wins. This is the guard that stops a cyclic downstream topology
 // (A forwards to B, B forwards to A) looping forever: the second arrival finds
 // a transcript already present, and does not re-broadcast or re-forward.
+//
+// Resolves true when this caller was the one that wrote.
 function storeTranscriptIfEmpty(callId, text) {
-    if (storedTranscript(callId)) return false
-    storeTranscript(callId, text)
-    return true
+    return storedTranscript(callId).then(function (existing) {
+        if (existing) return false
+
+        return storeTranscript(callId, text).then(function () {
+            return true
+        })
+    })
+}
+
+// Resolving a call id stays synchronous, deliberately.
+//
+// rdio.calls.findId has no async variant, and asking the calls table directly
+// instead would be wrong rather than merely slower: the host matches within a
+// ±500ms window and formats the timestamp the way that database backend writes
+// it (server call.go GetIdByKey), so a bound RFC3339 string compares equal on
+// PostgreSQL and silently matches nothing on SQLite.
+//
+// It is also the least of the costs here — bounded at ten seconds by
+// pluginLookupTimeout, against the five-minute ceiling the db statements used
+// to carry. Calling it once instead of twice is the win available today; an
+// async variant is the proper fix and belongs in the host.
+function findCallId(system, talkgroup, dateTime) {
+    return rdio.calls.findId(system, talkgroup, dateTime)
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +526,18 @@ function forwardDownstream(system, talkgroup, dateTime, text) {
 // ---------------------------------------------------------------------------
 // Transcription
 // ---------------------------------------------------------------------------
+
+// Hands the next attempt to a fresh tick.
+//
+// Recursing straight into transcribe() from inside .then/.catch kept the whole
+// retry chain in one loop job: eight attempts meant eight multipart bodies
+// built back to back, each copying the call's audio, with nothing else able to
+// run in between. Same attempt, same moment — just not on the caller's back.
+function retryTranscribe(call, attempt, tried, lastError, done) {
+    setTimeout(function () {
+        transcribe(call, attempt, tried, lastError, done)
+    }, 0)
+}
 
 function transcribe(call, attempt, tried, lastError, done) {
     if (attempt >= 8) {
@@ -479,12 +599,12 @@ function transcribe(call, attempt, tried, lastError, done) {
             var label = reserved.key === ANONYMOUS_KEY ? '(anonymous)' : '…' + keyTail(reserved.key)
             rdio.log('info', 'transcription 429 on key ' + label + ', paused ' + Math.round(backoff / 1000) + 's; trying next key')
 
-            transcribe(call, attempt + 1, tried, 'rate limited on key', done)
+            retryTranscribe(call, attempt + 1, tried, 'rate limited on key', done)
             return
         }
 
         if (res.status >= 500) {
-            transcribe(call, attempt + 1, tried, 'api status ' + res.status, done)
+            retryTranscribe(call, attempt + 1, tried, 'api status ' + res.status, done)
             return
         }
 
@@ -510,7 +630,7 @@ function transcribe(call, attempt, tried, lastError, done) {
     }).catch(function (err) {
         // Network-level failure: could be specific to this request path, so
         // another key is worth trying.
-        transcribe(call, attempt + 1, tried, 'network error: ' + err, done)
+        retryTranscribe(call, attempt + 1, tried, 'network error: ' + err, done)
     })
 }
 
@@ -569,12 +689,31 @@ function startJob(job) {
 function runJob(job) {
     // A retry may have been overtaken by the upstream's transcript push while
     // it waited; finishing the local job anyway would overwrite it.
-    if (storedTranscript(job.id)) {
+    storedTranscript(job.id).then(function (existing) {
+        if (existing) {
+            inFlight--
+            drainQueue()
+            return
+        }
+
+        startTranscription(job)
+    }).catch(function (err) {
+        rdio.log('warn', 'could not check existing transcript for call ' + job.id + ': ' + err)
         inFlight--
         drainQueue()
-        return
-    }
+    })
+}
 
+function startTranscription(job) {
+    // The one blocking host call left in this plugin, and the heaviest: it
+    // pulls the call's audio — 50 to 200 KB — onto the event loop.
+    //
+    // It cannot go off-loop yet. rdio.calls has no async variant, and reading
+    // the blob with rdio.db.queryAsync instead would corrupt it: the database
+    // binding normalises every []byte column to a string (server plugin_db.go
+    // normalizePluginValue), so the bytes come back through a JS string and no
+    // longer survive re-encoding. An async calls.get in the host is the fix;
+    // until then this is deliberately unchanged rather than quietly broken.
     var call = rdio.calls.get(job.id, { audio: true })
 
     if (!call || !call.audio || call.audio.length <= MIN_AUDIO_BYTES) {
@@ -585,6 +724,9 @@ function runJob(job) {
 
     transcribe(call, 0, {}, null, function (text, err) {
         inFlight--
+
+        // Set when the store path takes over responsibility for draining.
+        var drained = false
 
         try {
             if (err) {
@@ -621,12 +763,22 @@ function runJob(job) {
                 return
             }
 
-            storeTranscript(job.id, text)
-            emitTranscript(job.id, call.system, call.talkgroup, text)
-            rdio.log('info', 'transcribed call ' + job.id + ' (' + text.length + ' chars)')
-            forwardDownstream(call.system, call.talkgroup, call.dateTime, text)
+            // Held open until the write lands: draining the queue first
+            // would let a retry read "no transcript yet" and transcribe the
+            // same call twice.
+            drained = true
+
+            storeTranscript(job.id, text).then(function () {
+                emitTranscript(job.id, call.system, call.talkgroup, text)
+                rdio.log('info', 'transcribed call ' + job.id + ' (' + text.length + ' chars)')
+                forwardDownstream(call.system, call.talkgroup, call.dateTime, text)
+            }).catch(function (storeErr) {
+                rdio.log('warn', 'could not store transcript for call ' + job.id + ': ' + storeErr)
+            }).then(function () {
+                drainQueue()
+            })
         } finally {
-            drainQueue()
+            if (!drained) drainQueue()
         }
     })
 }
@@ -743,13 +895,24 @@ function sweepFallbacks() {
         // anywhere near a query.
         var callId = Number(key)
 
-        // The upstream may have delivered while we waited.
-        if (storedTranscript(callId)) continue
         if (!enabled()) continue
+
+        // The upstream may have delivered while we waited. Asked off the loop,
+        // so a backlog of due entries costs concurrency rather than a stall.
+        checkThenEnqueue(callId)
+    }
+}
+
+// Queues a call for local transcription unless a transcript turned up first.
+function checkThenEnqueue(callId) {
+    storedTranscript(callId).then(function (existing) {
+        if (existing) return
 
         rdio.log('info', 'upstream transcript never arrived for call ' + callId + '; transcribing locally')
         enqueue(callId)
-    }
+    }).catch(function (err) {
+        rdio.log('warn', 'fallback check failed for call ' + callId + ': ' + err)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -759,27 +922,32 @@ function sweepFallbacks() {
 // The shared tail of every path that receives a transcript from elsewhere:
 // store it if the call has none, tell listeners, stop any fallback, and pass it
 // on. Returns false when the call already had one.
+// Resolves true when this caller wrote the transcript, false when the call
+// already had one.
 function applyInbound(callId, system, talkgroup, dateTime, text, ident) {
-    if (!storeTranscriptIfEmpty(callId, text)) {
-        // Duplicate. Skip the broadcast, and crucially skip forwarding — that
-        // is what would loop forever between mutual downstreams. Still cancel
-        // the fallback, because the upstream did make a real delivery.
-        cancelFallback(callId)
-        rdio.log('info', 'transcript push duplicate: [' + ident + '] system=' + system +
-            ' talkgroup=' + talkgroup + ' id=' + callId + ' (call already has a transcript, rejected)')
-        return false
-    }
+    return storeTranscriptIfEmpty(callId, text).then(function (wrote) {
+        if (!wrote) {
+            // Duplicate. Skip the broadcast, and crucially skip forwarding —
+            // that is what would loop forever between mutual downstreams. Still
+            // cancel the fallback, because the upstream did make a real
+            // delivery.
+            cancelFallback(callId)
+            rdio.log('info', 'transcript push duplicate: [' + ident + '] system=' + system +
+                ' talkgroup=' + talkgroup + ' id=' + callId + ' (call already has a transcript, rejected)')
+            return false
+        }
 
-    emitTranscript(callId, system, talkgroup, text)
-    rdio.log('info', 'transcript received: [' + ident + '] system=' + system +
-        ' talkgroup=' + talkgroup + ' id=' + callId + ' (' + text.length + ' chars)')
+        emitTranscript(callId, system, talkgroup, text)
+        rdio.log('info', 'transcript received: [' + ident + '] system=' + system +
+            ' talkgroup=' + talkgroup + ' id=' + callId + ' (' + text.length + ' chars)')
 
-    if (cancelFallback(callId)) {
-        rdio.log('info', 'fallback transcription cancelled: id=' + callId + ' (transcript arrived from upstream)')
-    }
+        if (cancelFallback(callId)) {
+            rdio.log('info', 'fallback transcription cancelled: id=' + callId + ' (transcript arrived from upstream)')
+        }
 
-    forwardDownstream(system, talkgroup, dateTime, text)
-    return true
+        forwardDownstream(system, talkgroup, dateTime, text)
+        return true
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -794,10 +962,13 @@ rdio.on('call.stored', function (call) {
     // A transcript that beat its own call to the wire.
     var held = takePending(call.system, call.talkgroup, call.dateTime)
     if (held) {
-        storeTranscript(call.id, held.transcript)
-        emitTranscript(call.id, call.system, call.talkgroup, held.transcript)
-        rdio.log('info', 'transcript applied from hold: [' + held.ident + '] id=' + call.id)
-        forwardDownstream(call.system, call.talkgroup, call.dateTime, held.transcript)
+        storeTranscript(call.id, held.transcript).then(function () {
+            emitTranscript(call.id, call.system, call.talkgroup, held.transcript)
+            rdio.log('info', 'transcript applied from hold: [' + held.ident + '] id=' + call.id)
+            forwardDownstream(call.system, call.talkgroup, call.dateTime, held.transcript)
+        }).catch(function (err) {
+            rdio.log('warn', 'could not store held transcript for id=' + call.id + ': ' + err)
+        })
         return
     }
 
@@ -835,7 +1006,11 @@ rdio.ws.on('TRX', function (client, payload) {
 
     if (!id) return
 
-    rdio.ws.emit({ client: client }, 'TRX', { id: id, transcript: storedTranscript(id) })
+    storedTranscript(id).then(function (text) {
+        rdio.ws.emit({ client: client }, 'TRX', { id: id, transcript: text })
+    }).catch(function (err) {
+        rdio.log('warn', 'could not read transcript for id=' + id + ': ' + err)
+    })
 })
 
 // ---------------------------------------------------------------------------
@@ -879,7 +1054,14 @@ rdio.routes.registerAbsolute('/api/call-transcript', function (req) {
     // garbage even when the upstream didn't clean up. Nothing usable left is
     // accepted and ignored, leaving the call open to local transcription
     // rather than marking it done with noise.
-    var text = sanitize(body.transcript)
+    var raw = String(body.transcript || '')
+    if (raw.length > MAX_INBOUND_TRANSCRIPT) {
+        rdio.log('warn', 'transcript push truncated: [' + auth.ident + '] system=' + body.system +
+            ' talkgroup=' + body.talkgroup + ' (' + raw.length + ' chars)')
+        raw = raw.slice(0, MAX_INBOUND_TRANSCRIPT)
+    }
+
+    var text = sanitize(raw)
     if (!text) {
         rdio.log('info', 'transcript push ignored (no usable text after sanitize): [' + auth.ident +
             '] system=' + body.system + ' talkgroup=' + body.talkgroup)
@@ -895,34 +1077,38 @@ rdio.routes.registerAbsolute('/api/call-transcript', function (req) {
     rdio.log('info', 'transcript push received: [' + auth.ident + '] system=' + body.system +
         ' talkgroup=' + body.talkgroup + ' dateTime=' + body.dateTime)
 
-    var id = rdio.calls.findId(body.system, body.talkgroup, body.dateTime)
+    // Everything below returns a promise, so the loop is free while the
+    // database works. The handler's synchronous part ends at the line above.
+    var id = findCallId(body.system, body.talkgroup, body.dateTime)
 
     if (!id) {
-        // The push overtook its own call upload. Hold it; call.stored will
-        // collect it when the call lands, and it expires if that never happens.
+        // The push overtook its own call upload. Hold it; call.stored collects
+        // it when the call lands, and it expires if that never happens.
+        //
+        // The second lookup that used to sit here covered a tight race — the
+        // call landing between the first lookup and the hold. The hold itself
+        // already covers it: call.stored takes the entry whenever it arrives.
+        // Asking the same question twice bought nothing and cost another
+        // blocking lookup.
         storePending(body.system, body.talkgroup, body.dateTime, text, auth.ident)
         rdio.log('info', 'transcript deferred (holding for incoming call): [' + auth.ident +
             '] system=' + body.system + ' talkgroup=' + body.talkgroup)
 
-        // Tight race: the call may have landed between the lookup above and
-        // the hold just now, in which case call.stored already ran and would
-        // leave the entry sitting unused until it expired.
-        var raced = rdio.calls.findId(body.system, body.talkgroup, body.dateTime)
-        if (raced) {
-            var entry = takePending(body.system, body.talkgroup, body.dateTime)
-            if (entry) {
-                applyInbound(raced, body.system, body.talkgroup, body.dateTime, entry.transcript, entry.ident)
-            }
-        }
-
         return { status: 200, body: 'Transcript accepted (deferred until matching call arrives).\n' }
     }
 
-    if (!applyInbound(id, body.system, body.talkgroup, body.dateTime, text, auth.ident)) {
-        return { status: 200, body: 'Transcript already applied (no-op).\n' }
-    }
+    return applyInbound(id, body.system, body.talkgroup, body.dateTime, text, auth.ident)
+        .then(function (wrote) {
+            if (!wrote) {
+                return { status: 200, body: 'Transcript already applied (no-op).\n' }
+            }
 
-    return { status: 200, body: 'Transcript updated successfully.\n' }
+            return { status: 200, body: 'Transcript updated successfully.\n' }
+        })
+        .catch(function (err) {
+            rdio.log('warn', 'transcript push failed: [' + auth.ident + '] id=' + id + ': ' + err)
+            return { status: 500, body: 'Could not store transcript.\n' }
+        })
 })
 
 // ---------------------------------------------------------------------------
@@ -948,8 +1134,12 @@ rdio.routes.registerAbsolute('/api/admin/transcribe', function (req) {
     // An admin typing a correction by hand.
     if (body.manual) {
         var manual = sanitize(body.transcript)
-        storeTranscript(id, manual)
-        return { status: 200, body: { id: id, transcript: manual } }
+
+        return storeTranscript(id, manual).then(function () {
+            return { status: 200, body: { id: id, transcript: manual } }
+        }).catch(function (err) {
+            return { status: 500, body: String(err) }
+        })
     }
 
     if (!enabled()) {
@@ -966,9 +1156,12 @@ rdio.routes.registerAbsolute('/api/admin/transcribe', function (req) {
                 return
             }
 
-            storeTranscript(id, text)
-            emitTranscript(id, call.system, call.talkgroup, text)
-            resolve({ status: 200, body: { id: id, transcript: text } })
+            storeTranscript(id, text).then(function () {
+                emitTranscript(id, call.system, call.talkgroup, text)
+                resolve({ status: 200, body: { id: id, transcript: text } })
+            }).catch(function (storeErr) {
+                resolve({ status: 500, body: String(storeErr) })
+            })
         })
     })
 })
@@ -979,15 +1172,16 @@ rdio.routes.register('GET', 'settings', function (req) {
         return { status: 401, body: 'unauthorized' }
     }
 
-    var systems = rdio.db.query('select * from `systems`')
-    var talkgroups = rdio.db.query('select * from `talkgroups`')
-
-    return {
+    return Promise.all([
+        rdio.db.queryAsync('select * from `systems`', []),
+        rdio.db.queryAsync('select * from `talkgroups`', []),
+    ]).then(function (results) {
+        return {
         status: 200,
         body: {
             systems: rdio.systems.list(),
-            systemSettings: systems,
-            talkgroupSettings: talkgroups,
+            systemSettings: results[0],
+            talkgroupSettings: results[1],
             // A per-system prompt is subject to the same cap as the global one,
             // and on Groq an over-long prompt is silently trimmed from the front
             // at transcription time. The editor needs all three to say so before
@@ -996,7 +1190,8 @@ rdio.routes.register('GET', 'settings', function (req) {
             promptMaxChars: PROMPT_MAX_CHARS,
             globalPrompt: String(cfg('prompt') || '').trim(),
         },
-    }
+        }
+    })
 })
 
 rdio.routes.register('POST', 'settings', function (req) {
@@ -1011,36 +1206,56 @@ rdio.routes.register('POST', 'settings', function (req) {
         return { status: 400, body: 'invalid json' }
     }
 
-    var i
+    var chain = Promise.resolve()
 
-    for (i = 0; i < (body.systems || []).length; i++) {
-        var system = body.systems[i]
-        var existing = rdio.db.query('select `systemId` from `systems` where `systemId` = ?', [system.systemId])
-        if (existing.length) {
-            rdio.db.exec('update `systems` set `transcribe` = ?, `prompt` = ? where `systemId` = ?',
-                [!!system.transcribe, String(system.prompt || ''), system.systemId])
-        } else {
-            rdio.db.exec('insert into `systems` (`systemId`, `transcribe`, `prompt`) values (?, ?, ?)',
-                [system.systemId, !!system.transcribe, String(system.prompt || '')])
-        }
-    }
+    ;(body.systems || []).forEach(function (system) {
+        chain = chain.then(function () {
+            return rdio.db.queryAsync('select `systemId` from `systems` where `systemId` = ?', [system.systemId])
+        }).then(function (existing) {
+            if (existing.length) {
+                return rdio.db.execAsync(
+                    'update `systems` set `transcribe` = ?, `prompt` = ? where `systemId` = ?',
+                    [!!system.transcribe, String(system.prompt || ''), system.systemId]
+                )
+            }
 
-    for (i = 0; i < (body.talkgroups || []).length; i++) {
-        var tg = body.talkgroups[i]
-        var found = rdio.db.query(
-            'select `talkgroupId` from `talkgroups` where `systemId` = ? and `talkgroupId` = ?',
-            [tg.systemId, tg.talkgroupId]
-        )
-        if (found.length) {
-            rdio.db.exec('update `talkgroups` set `transcribe` = ? where `systemId` = ? and `talkgroupId` = ?',
-                [!!tg.transcribe, tg.systemId, tg.talkgroupId])
-        } else {
-            rdio.db.exec('insert into `talkgroups` (`systemId`, `talkgroupId`, `transcribe`) values (?, ?, ?)',
-                [tg.systemId, tg.talkgroupId, !!tg.transcribe])
-        }
-    }
+            return rdio.db.execAsync(
+                'insert into `systems` (`systemId`, `transcribe`, `prompt`) values (?, ?, ?)',
+                [system.systemId, !!system.transcribe, String(system.prompt || '')]
+            )
+        })
+    })
 
-    return { status: 200, body: { saved: true } }
+    ;(body.talkgroups || []).forEach(function (tg) {
+        chain = chain.then(function () {
+            return rdio.db.queryAsync(
+                'select `talkgroupId` from `talkgroups` where `systemId` = ? and `talkgroupId` = ?',
+                [tg.systemId, tg.talkgroupId]
+            )
+        }).then(function (found) {
+            if (found.length) {
+                return rdio.db.execAsync(
+                    'update `talkgroups` set `transcribe` = ? where `systemId` = ? and `talkgroupId` = ?',
+                    [!!tg.transcribe, tg.systemId, tg.talkgroupId]
+                )
+            }
+
+            return rdio.db.execAsync(
+                'insert into `talkgroups` (`systemId`, `talkgroupId`, `transcribe`) values (?, ?, ?)',
+                [tg.systemId, tg.talkgroupId, !!tg.transcribe]
+            )
+        })
+    })
+
+    return chain.then(function () {
+        // These settings are cached for the ingest path, so the cache has to
+        // learn about the edit that just happened.
+        invalidateTranscribeFlags()
+
+        return { status: 200, body: { saved: true } }
+    }).catch(function (err) {
+        return { status: 500, body: String(err) }
+    })
 })
 
 // ---------------------------------------------------------------------------
@@ -1056,8 +1271,9 @@ rdio.plugins.handle('get', function (args) {
     var id = Number(args && args.id)
     if (!id) return null
 
-    var text = storedTranscript(id)
-    return text ? { id: id, transcript: text } : null
+    return storedTranscript(id).then(function (text) {
+        return text ? { id: id, transcript: text } : null
+    })
 })
 
 // Answers "is there a transcript for this call yet", which is the question a
@@ -1065,7 +1281,11 @@ rdio.plugins.handle('get', function (args) {
 // needs to know whether to wait.
 rdio.plugins.handle('has', function (args) {
     var id = Number(args && args.id)
-    return { id: id, ready: !!(id && storedTranscript(id)) }
+    if (!id) return { id: id, ready: false }
+
+    return storedTranscript(id).then(function (text) {
+        return { id: id, ready: !!text }
+    })
 })
 
 // Transcribes on demand. Returns a promise, so the caller's own event loop keeps
@@ -1075,11 +1295,16 @@ rdio.plugins.handle('transcribe', function (args) {
     var id = Number(args && args.id)
     if (!id) throw new Error('transcribe requires an id')
 
-    var existing = storedTranscript(id)
-    if (existing && !(args && args.force)) {
-        return { id: id, transcript: existing, cached: true }
-    }
+    return storedTranscript(id).then(function (existing) {
+        if (existing && !(args && args.force)) {
+            return { id: id, transcript: existing, cached: true }
+        }
 
+        return transcribeOnDemand(id)
+    })
+})
+
+function transcribeOnDemand(id) {
     var call = rdio.calls.get(id, { audio: true })
     if (!call) throw new Error('no call ' + id)
 
@@ -1093,15 +1318,18 @@ rdio.plugins.handle('transcribe', function (args) {
                 return
             }
 
-            if (text) {
-                storeTranscript(id, text)
-                emitTranscript(id, call.system, call.talkgroup, text)
+            if (!text) {
+                resolve({ id: id, transcript: '', cached: false })
+                return
             }
 
-            resolve({ id: id, transcript: text || '', cached: false })
+            storeTranscript(id, text).then(function () {
+                emitTranscript(id, call.system, call.talkgroup, text)
+                resolve({ id: id, transcript: text, cached: false })
+            }).catch(reject)
         })
     })
-})
+}
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -1138,6 +1366,7 @@ rdio.on('startup', function () {
 
     publishConfig()
     refreshKeys()
+    loadTranscribeFlags()
 
     rdio.log('info', 'transcripts ready (provider ' + activeProvider() +
         ', ' + keys.length + ' key(s), ' + (cfg('enabled') ? 'enabled' : 'disabled') + ')')
@@ -1146,6 +1375,7 @@ rdio.on('startup', function () {
 rdio.on('config.changed', function () {
     publishConfig()
     refreshKeys()
+    invalidateTranscribeFlags()
 })
 
 // Fallback timers and the pending-transcript cache both need a periodic sweep.
