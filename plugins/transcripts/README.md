@@ -93,3 +93,22 @@ neither stored again nor re-forwarded.
 
 If an upstream is expected to supply a transcript and does not, this server
 transcribes the call itself after a fallback delay rather than leaving it blank.
+
+### Transcribing everything yourself
+
+**Ignore transcripts from upstream** makes this server discard what other
+instances push it and transcribe every call locally, so one instance can own
+transcription for a whole chain instead of each copy inheriting whichever
+wording, prompt and provider reached it first.
+
+It covers the three ways an upstream transcript would otherwise take effect: a
+push is answered `200` and dropped, a push held for a call that has not arrived
+yet is not applied when it does, and a `transcriptPending` hint on an upload —
+which normally suppresses local transcription in favour of a push that is now
+going to be discarded — is ignored, so the call is transcribed straight away
+rather than after the fallback delay.
+
+This server also stops advertising `transcript-forward`, so peers stop sending
+in the first place. That announcement is made once at startup and settings are
+applied without a restart, so peers notice at the next one; the dropping itself
+takes effect as soon as the setting is saved.

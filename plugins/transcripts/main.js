@@ -404,6 +404,36 @@ function talkgroupTranscribes(systemId, talkgroupId) {
     return value === undefined ? true : value
 }
 
+// Whether transcripts arriving from other instances are thrown away.
+//
+// Set when this instance is meant to be the one that transcribes, so a chain of
+// servers produces one instance's wording, prompt and provider rather than
+// whichever copy happened to get there first.
+function ignoreUpstream() {
+    return !!cfg('ignoreUpstreamTranscripts')
+}
+
+// Counts drops between log lines, so a busy chain does not write one line per
+// call to say it did the thing it was configured to do.
+var droppedUpstream = 0
+var droppedUpstreamLoggedAt = 0
+var DROP_LOG_INTERVAL_MS = 60000
+
+function noteUpstreamDrop(ident, system, talkgroup) {
+    droppedUpstream++
+
+    var now = Date.now()
+    if (droppedUpstreamLoggedAt && now - droppedUpstreamLoggedAt < DROP_LOG_INTERVAL_MS) {
+        return
+    }
+
+    rdio.log('info', 'transcript push dropped (set to transcribe locally): [' + ident +
+        '] system=' + system + ' talkgroup=' + talkgroup +
+        (droppedUpstream > 1 ? ' — ' + droppedUpstream + ' dropped so far' : ''))
+
+    droppedUpstreamLoggedAt = now
+}
+
 function enabled() {
     if (!cfg('enabled')) return false
 
@@ -990,8 +1020,11 @@ rdio.on('call.stored', function (call) {
         return
     }
 
-    // A transcript that beat its own call to the wire.
-    var held = takePending(call.system, call.talkgroup, call.dateTime)
+    // A transcript that beat its own call to the wire. Skipped when upstream
+    // transcripts are being ignored — the route stops parking new ones, but
+    // entries held from before the setting was turned on are still in the map
+    // and would otherwise be applied after the fact.
+    var held = ignoreUpstream() ? null : takePending(call.system, call.talkgroup, call.dateTime)
     if (held) {
         storeTranscript(call.id, held.transcript).then(function () {
             emitTranscript(call.id, call.system, call.talkgroup, held.transcript)
@@ -1013,7 +1046,13 @@ rdio.on('call.stored', function (call) {
     // this call and will push the result. Don't duplicate the work — but do set
     // a timer, so a push that never comes doesn't leave the call blank forever.
     // call.meta carries whatever non-core fields the uploader sent.
-    if (call.meta && call.meta.transcriptPending) {
+    //
+    // Ignored outright when this instance is set to transcribe locally. The
+    // hint's whole purpose is to suppress local transcription in favour of a
+    // push that is now going to be discarded, so honouring it would leave the
+    // call waiting on a transcript already decided against, and only transcribe
+    // it when the fallback timer eventually gave up.
+    if (call.meta && call.meta.transcriptPending && !ignoreUpstream()) {
         rdio.log('info', 'call from upstream with pending transcript: id=' + call.id + ' (awaiting push)')
         scheduleFallback(call)
         return
@@ -1052,7 +1091,20 @@ rdio.ws.on('TRX', function (client, payload) {
 // here. That endpoint stays in the server and reports what every enabled plugin
 // advertises — one plugin claiming it would have to answer on behalf of all the
 // others, which is not its business.
-rdio.capabilities.advertise('transcript-forward')
+//
+// Not advertised when upstream transcripts are being ignored: a peer that knows
+// this instance does not take forwarded transcripts stops sending them, which
+// is better than sending them to be dropped. Only the announcement depends on
+// the setting — the route drops them regardless, so a peer that never re-reads
+// capabilities, or was told before the setting changed, still cannot override
+// the choice.
+//
+// advertise runs once at load and there is no way to withdraw it, and saving
+// settings does not restart a plugin, so a change here reaches peers at the
+// next restart. The dropping itself takes effect immediately.
+if (!ignoreUpstream()) {
+    rdio.capabilities.advertise('transcript-forward')
+}
 
 rdio.routes.registerAbsolute('/api/call-transcript', function (req) {
     if (req.method !== 'POST') {
@@ -1078,6 +1130,16 @@ rdio.routes.registerAbsolute('/api/call-transcript', function (req) {
             status: 401,
             body: 'Invalid API key for system ' + body.system + ' talkgroup ' + body.talkgroup + '.\n',
         }
+    }
+
+    // Dropped here rather than at the door: the key is verified first, so an
+    // unauthenticated caller learns nothing about this instance's settings, and
+    // the answer is a 200 because the push was well formed and the sender did
+    // nothing wrong. Refusing it would make a correctly-behaving upstream retry,
+    // or mark this instance as failing, over a local preference.
+    if (ignoreUpstream()) {
+        noteUpstreamDrop(auth.ident, body.system, body.talkgroup)
+        return { status: 200, body: 'Transcript ignored (this instance transcribes locally).\n' }
     }
 
     // Sanitise defensively. An upstream on a self-hosted backend may push raw

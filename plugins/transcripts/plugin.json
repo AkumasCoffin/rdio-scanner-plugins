@@ -1,7 +1,7 @@
 {
   "id": "transcripts",
   "name": "Transcripts",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "apiVersion": 1,
   "description": "Transcribes call audio with Whisper and shows it in the scanner.",
   "author": "Rdio Scanner",
@@ -148,6 +148,13 @@
       "type": "boolean",
       "label": "Wait for transcript",
       "help": "Every client holds each call's audio playback for up to 15 seconds until its transcript is ready, then plays. If Whisper does not answer in time the call plays without one — no calls are lost. Applies to all clients globally.",
+      "default": false
+    },
+    {
+      "key": "ignoreUpstreamTranscripts",
+      "type": "boolean",
+      "label": "Ignore transcripts from upstream",
+      "help": "Discard transcripts pushed here by other instances and transcribe every call locally instead. Use this when one instance should own transcription for a whole chain, so downstream copies do not inherit an upstream's wording, prompt or provider. Pushes are still accepted and answered, just dropped, so an upstream that keeps sending them is not treated as failing. Peers also stop being told this instance takes forwarded transcripts, which only reaches them after a restart.",
       "default": false
     },
     {
