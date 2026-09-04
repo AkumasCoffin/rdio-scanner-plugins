@@ -459,20 +459,36 @@ function storeTranscriptIfEmpty(callId, text) {
     })
 }
 
-// Resolving a call id stays synchronous, deliberately.
+// The two host calls that read core's tables, always as promises.
 //
-// rdio.calls.findId has no async variant, and asking the calls table directly
-// instead would be wrong rather than merely slower: the host matches within a
-// ±500ms window and formats the timestamp the way that database backend writes
-// it (server call.go GetIdByKey), so a bound RFC3339 string compares equal on
-// PostgreSQL and silently matches nothing on SQLite.
+// Both have async variants from Rdio Scanner 6.14.2, and neither did before —
+// so each is used when it is there and the synchronous form wrapped in a
+// resolved promise when it is not. The callers do not need to know which; they
+// await either way, and on a host with the async variants nothing here touches
+// the event loop at all.
 //
-// It is also the least of the costs here — bounded at ten seconds by
-// pluginLookupTimeout, against the five-minute ceiling the db statements used
-// to carry. Calling it once instead of twice is the win available today; an
-// async variant is the proper fix and belongs in the host.
+// Neither can be replaced with a plain SQL query. findId matches within a
+// ±500ms window in the backend's own date format (server call.go GetIdByKey),
+// so a bound RFC3339 string compares equal on PostgreSQL and silently matches
+// nothing on SQLite; and reading audio through rdio.db would corrupt it,
+// because the database binding normalises every []byte column to a string
+// (server plugin_db.go normalizePluginValue).
 function findCallId(system, talkgroup, dateTime) {
-    return rdio.calls.findId(system, talkgroup, dateTime)
+    if (rdio.calls.findIdAsync) {
+        return rdio.calls.findIdAsync(system, talkgroup, dateTime)
+    }
+
+    return Promise.resolve(rdio.calls.findId(system, talkgroup, dateTime))
+}
+
+function loadCall(id, withAudio) {
+    var options = { audio: !!withAudio }
+
+    if (rdio.calls.getAsync) {
+        return rdio.calls.getAsync(id, options)
+    }
+
+    return Promise.resolve(rdio.calls.get(id, options))
 }
 
 // ---------------------------------------------------------------------------
@@ -705,23 +721,25 @@ function runJob(job) {
 }
 
 function startTranscription(job) {
-    // The one blocking host call left in this plugin, and the heaviest: it
-    // pulls the call's audio — 50 to 200 KB — onto the event loop.
-    //
-    // It cannot go off-loop yet. rdio.calls has no async variant, and reading
-    // the blob with rdio.db.queryAsync instead would corrupt it: the database
-    // binding normalises every []byte column to a string (server plugin_db.go
-    // normalizePluginValue), so the bytes come back through a JS string and no
-    // longer survive re-encoding. An async calls.get in the host is the fix;
-    // until then this is deliberately unchanged rather than quietly broken.
-    var call = rdio.calls.get(job.id, { audio: true })
+    // Reading a call's audio is the heaviest thing this plugin asks for — 50 to
+    // 200 KB, and on a busy server a couple of seconds of disk. Held the loop
+    // for exactly that long until the host grew an async variant.
+    loadCall(job.id, true).then(function (call) {
+        if (!call || !call.audio || call.audio.length <= MIN_AUDIO_BYTES) {
+            inFlight--
+            drainQueue()
+            return
+        }
 
-    if (!call || !call.audio || call.audio.length <= MIN_AUDIO_BYTES) {
+        runTranscription(job, call)
+    }).catch(function (err) {
+        rdio.log('warn', 'could not load audio for call ' + job.id + ': ' + err)
         inFlight--
         drainQueue()
-        return
-    }
+    })
+}
 
+function runTranscription(job, call) {
     transcribe(call, 0, {}, null, function (text, err) {
         inFlight--
 
@@ -1079,36 +1097,37 @@ rdio.routes.registerAbsolute('/api/call-transcript', function (req) {
 
     // Everything below returns a promise, so the loop is free while the
     // database works. The handler's synchronous part ends at the line above.
-    var id = findCallId(body.system, body.talkgroup, body.dateTime)
+    return findCallId(body.system, body.talkgroup, body.dateTime).then(function (id) {
+        if (!id) {
+            // The push overtook its own call upload. Hold it; call.stored
+            // collects it when the call lands, and it expires if that never
+            // happens.
+            //
+            // The second lookup that used to sit here covered a tight race —
+            // the call landing between the first lookup and the hold. The hold
+            // itself already covers it: call.stored takes the entry whenever it
+            // arrives. Asking the same question twice bought nothing and cost
+            // another blocking lookup.
+            storePending(body.system, body.talkgroup, body.dateTime, text, auth.ident)
+            rdio.log('info', 'transcript deferred (holding for incoming call): [' + auth.ident +
+                '] system=' + body.system + ' talkgroup=' + body.talkgroup)
 
-    if (!id) {
-        // The push overtook its own call upload. Hold it; call.stored collects
-        // it when the call lands, and it expires if that never happens.
-        //
-        // The second lookup that used to sit here covered a tight race — the
-        // call landing between the first lookup and the hold. The hold itself
-        // already covers it: call.stored takes the entry whenever it arrives.
-        // Asking the same question twice bought nothing and cost another
-        // blocking lookup.
-        storePending(body.system, body.talkgroup, body.dateTime, text, auth.ident)
-        rdio.log('info', 'transcript deferred (holding for incoming call): [' + auth.ident +
-            '] system=' + body.system + ' talkgroup=' + body.talkgroup)
+            return { status: 200, body: 'Transcript accepted (deferred until matching call arrives).\n' }
+        }
 
-        return { status: 200, body: 'Transcript accepted (deferred until matching call arrives).\n' }
-    }
+        return applyInbound(id, body.system, body.talkgroup, body.dateTime, text, auth.ident)
+            .then(function (wrote) {
+                if (!wrote) {
+                    return { status: 200, body: 'Transcript already applied (no-op).\n' }
+                }
 
-    return applyInbound(id, body.system, body.talkgroup, body.dateTime, text, auth.ident)
-        .then(function (wrote) {
-            if (!wrote) {
-                return { status: 200, body: 'Transcript already applied (no-op).\n' }
-            }
-
-            return { status: 200, body: 'Transcript updated successfully.\n' }
-        })
-        .catch(function (err) {
-            rdio.log('warn', 'transcript push failed: [' + auth.ident + '] id=' + id + ': ' + err)
-            return { status: 500, body: 'Could not store transcript.\n' }
-        })
+                return { status: 200, body: 'Transcript updated successfully.\n' }
+            })
+    }).catch(function (err) {
+        rdio.log('warn', 'transcript push failed: [' + auth.ident + '] system=' + body.system +
+            ' talkgroup=' + body.talkgroup + ': ' + err)
+        return { status: 500, body: 'Could not store transcript.\n' }
+    })
 })
 
 // ---------------------------------------------------------------------------
@@ -1146,21 +1165,22 @@ rdio.routes.registerAbsolute('/api/admin/transcribe', function (req) {
         return { status: 400, body: 'transcription is not configured' }
     }
 
-    var call = rdio.calls.get(id, { audio: true })
-    if (!call) return { status: 404, body: 'no such call' }
+    return loadCall(id, true).then(function (call) {
+        if (!call) return { status: 404, body: 'no such call' }
 
-    return new Promise(function (resolve) {
-        transcribe(call, 0, {}, null, function (text, err) {
-            if (err) {
-                resolve({ status: 500, body: String(err) })
-                return
-            }
+        return new Promise(function (resolve) {
+            transcribe(call, 0, {}, null, function (text, err) {
+                if (err) {
+                    resolve({ status: 500, body: String(err) })
+                    return
+                }
 
-            storeTranscript(id, text).then(function () {
-                emitTranscript(id, call.system, call.talkgroup, text)
-                resolve({ status: 200, body: { id: id, transcript: text } })
-            }).catch(function (storeErr) {
-                resolve({ status: 500, body: String(storeErr) })
+                storeTranscript(id, text).then(function () {
+                    emitTranscript(id, call.system, call.talkgroup, text)
+                    resolve({ status: 200, body: { id: id, transcript: text } })
+                }).catch(function (storeErr) {
+                    resolve({ status: 500, body: String(storeErr) })
+                })
             })
         })
     })
@@ -1305,9 +1325,14 @@ rdio.plugins.handle('transcribe', function (args) {
 })
 
 function transcribeOnDemand(id) {
-    var call = rdio.calls.get(id, { audio: true })
-    if (!call) throw new Error('no call ' + id)
+    return loadCall(id, true).then(function (call) {
+        if (!call) throw new Error('no call ' + id)
 
+        return transcribeCall(id, call)
+    })
+}
+
+function transcribeCall(id, call) {
     return new Promise(function (resolve, reject) {
         // Callback is (text, err), in that order — matching the two existing
         // callers. Reading it as (err, text) would resolve with the error
@@ -1368,8 +1393,17 @@ rdio.on('startup', function () {
     refreshKeys()
     loadTranscribeFlags()
 
+    // Says plainly which path the call lookups will take. On a host without
+    // the async variants everything still works, but reading a call's audio
+    // holds the event loop for as long as that read takes — which on a busy
+    // server is seconds, and is the one thing left that can.
+    var callsApi = rdio.calls.getAsync
+        ? 'calls api async'
+        : 'calls api synchronous (server 6.14.2+ moves it off the event loop)'
+
     rdio.log('info', 'transcripts ready (provider ' + activeProvider() +
-        ', ' + keys.length + ' key(s), ' + (cfg('enabled') ? 'enabled' : 'disabled') + ')')
+        ', ' + keys.length + ' key(s), ' + (cfg('enabled') ? 'enabled' : 'disabled') +
+        ', ' + callsApi + ')')
 })
 
 rdio.on('config.changed', function () {
