@@ -1468,6 +1468,11 @@ rdio.on('startup', function () {
         keyColumn: 'callId',
         textColumn: 'transcript',
         resultField: 'transcript',
+        // Naming it puts "With transcript" / "Without transcript" in the search
+        // rail. The server only knows some calls have this text and some do
+        // not; the word is ours, which is why the filter arrives and leaves
+        // with this plugin rather than living in the app.
+        label: 'transcript',
     })
 
     publishConfig()
