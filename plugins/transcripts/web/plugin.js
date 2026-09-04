@@ -11,138 +11,156 @@
  * identifiers, street names, agency abbreviations, the vocabulary Whisper will
  * otherwise guess at. One global prompt cannot serve a fire system and a rail
  * network at once, which is why the per-system one exists.
+ *
+ * These settings now render inside each system's own editor, through the
+ * admin-system slot, rather than as a list of every system parked under the
+ * plugin manager. That list was the only place a plugin could draw at the time.
+ * It meant configuring one system's prompt happened two tabs away from
+ * everything else about that system, against a second copy of the system list
+ * that could disagree with the real one — and it scaled badly, rendering every
+ * system and every talkgroup on a server that has hundreds.
  */
-
 ;(function () {
     'use strict'
 
     window.rdioScanner.plugins.register('transcripts', {
         init: function (ctx) {
-            ctx.slots.mount('admin-panel', function (el) {
-                return mount(ctx, el)
+            ctx.slots.mount('admin-system', function (el, data) {
+                return mount(ctx, el, data)
             })
         },
     })
 
-    function mount(ctx, el) {
+    // One fetch, shared by every pane.
+    //
+    // The endpoint answers for all systems at once, and the slot remounts on
+    // every system the user clicks through — so without this, browsing a
+    // twelve-system config is twelve identical round trips. Cleared after a
+    // save, and on failure, so the next pane retries rather than replaying the
+    // error forever.
+    var settingsRequest = null
+
+    // Edits that have not been saved yet, kept per system id.
+    //
+    // Selecting another system destroys this pane and building a fresh one from
+    // the server would silently discard whatever was typed. The system editor
+    // around it deliberately keeps unsaved edits across that same switch, so
+    // dropping them here would make the plugin's fields behave unlike every
+    // field beside them.
+    var pending = {}
+
+    function loadSettings(ctx) {
+        if (!settingsRequest) {
+            settingsRequest = ctx.api.get('settings').catch(function (err) {
+                settingsRequest = null
+                throw err
+            })
+        }
+
+        return settingsRequest
+    }
+
+    function mount(ctx, el, system) {
+        var systemId = system && system.id
+
+        // A system being created has no id yet, and these settings are stored
+        // against one. Nothing to draw until it has been saved.
+        if (systemId === null || systemId === undefined || systemId === '') return
+
         var state = {
-            systems: [],
-            systemSettings: {},
-            talkgroupSettings: {},
+            systemId: systemId,
+            label: (system && system.label) || '',
             provider: '',
             promptMaxChars: 896,
             globalPrompt: '',
-            open: false,
+            talkgroups: [],
+            settings: { systemId: systemId, transcribe: true, prompt: '' },
+            talkgroupSettings: {},
             loaded: false,
+            error: '',
         }
 
         var root = document.createElement('div')
-        root.className = 'rdio-transcripts-admin'
+        root.className = 'rdio-transcripts-system'
         el.appendChild(root)
 
-        injectStyles(ctx)
+        injectStyles()
         render()
+        load()
 
         function render() {
             root.textContent = ''
 
-            var header = document.createElement('button')
-            header.type = 'button'
-            header.className = 'tx-header'
-            header.textContent = 'Transcription — per system'
-            header.addEventListener('click', function () {
-                state.open = !state.open
-                if (state.open && !state.loaded) load()
-                else render()
-            })
-            root.appendChild(header)
+            var title = document.createElement('div')
+            title.className = 'tx-title'
+            title.textContent = 'Transcription'
+            root.appendChild(title)
 
-            if (!state.open) return
-
-            var body = document.createElement('div')
-            body.className = 'tx-body'
-            root.appendChild(body)
+            if (state.error) {
+                var problem = document.createElement('p')
+                problem.className = 'tx-note tx-error'
+                problem.textContent = state.error
+                root.appendChild(problem)
+                return
+            }
 
             if (!state.loaded) {
                 var loading = document.createElement('p')
                 loading.className = 'tx-note'
                 loading.textContent = 'Loading…'
-                body.appendChild(loading)
+                root.appendChild(loading)
                 return
             }
 
-            var intro = document.createElement('p')
-            intro.className = 'tx-note'
-            intro.textContent =
-                'A prompt biases Whisper toward the vocabulary of one system — unit identifiers, ' +
-                'street names, agency abbreviations. A system left blank falls back to the global ' +
-                'prompt in this plugin’s settings, and a system prompt replaces it rather than ' +
-                'adding to it. The same ' + state.promptMaxChars + '-character limit applies to both.'
-            body.appendChild(intro)
-
-            if (!state.systems.length) {
-                var none = document.createElement('p')
-                none.className = 'tx-note'
-                none.textContent = 'No systems are configured yet.'
-                body.appendChild(none)
-                return
-            }
-
-            state.systems.forEach(function (system) {
-                body.appendChild(systemRow(system))
-            })
-
-            var actions = document.createElement('div')
-            actions.className = 'tx-actions'
-
-            var save = document.createElement('button')
-            save.type = 'button'
-            save.className = 'tx-save'
-            save.textContent = 'Save transcription settings'
-            save.addEventListener('click', function () { persist(save) })
-            actions.appendChild(save)
-
-            body.appendChild(actions)
+            root.appendChild(systemFields())
         }
 
-        function systemRow(system) {
-            var settings = state.systemSettings[system.id] || { transcribe: true, prompt: '' }
-
+        function systemFields() {
             var wrap = document.createElement('div')
-            wrap.className = 'tx-system'
 
             var head = document.createElement('div')
-            head.className = 'tx-system-head'
+            head.className = 'tx-row'
 
-            var name = document.createElement('span')
-            name.className = 'tx-system-name'
-            name.textContent = system.label || ('System ' + system.id)
-            head.appendChild(name)
+            var describe = document.createElement('p')
+            describe.className = 'tx-describe'
+            describe.innerHTML = '<span class="tx-label">Transcribe this system</span><br>' +
+                '<span class="tx-note">Off means calls on this system are never sent to ' +
+                (state.provider ? escapeHtml(state.provider) : 'the transcription provider') +
+                '. Individual talkgroups can be switched off below.</span>'
+            head.appendChild(describe)
 
             var toggle = document.createElement('label')
             toggle.className = 'tx-toggle'
 
             var box = document.createElement('input')
             box.type = 'checkbox'
-            box.checked = settings.transcribe !== false
+            box.checked = state.settings.transcribe !== false
             box.addEventListener('change', function () {
-                setSystem(system.id, { transcribe: box.checked })
+                state.settings.transcribe = box.checked
+                markPending()
             })
             toggle.appendChild(box)
-
-            var toggleText = document.createElement('span')
-            toggleText.textContent = 'Transcribe'
-            toggle.appendChild(toggleText)
-
             head.appendChild(toggle)
+
             wrap.appendChild(head)
+
+            var promptRow = document.createElement('div')
+            promptRow.className = 'tx-block'
+
+            var promptLabel = document.createElement('p')
+            promptLabel.className = 'tx-describe'
+            promptLabel.innerHTML = '<span class="tx-label">Prompt</span><br>' +
+                '<span class="tx-note">Biases the transcription toward this system’s vocabulary — unit ' +
+                'identifiers, street names, agency abbreviations. Left blank, the global prompt from the ' +
+                'plugin’s settings is used; a prompt here replaces it rather than adding to it.</span>'
+            promptRow.appendChild(promptLabel)
 
             var prompt = document.createElement('textarea')
             prompt.className = 'tx-prompt'
             prompt.rows = 3
             prompt.placeholder = 'Unit IDs, street names, agency names… (leave blank to use the global prompt)'
-            prompt.value = settings.prompt || ''
-            wrap.appendChild(prompt)
+            prompt.value = state.settings.prompt || ''
+            promptRow.appendChild(prompt)
 
             // Not a maxlength. Only Groq enforces the cap, and it does so by
             // trimming from the front at transcription time — so a hard limit
@@ -150,7 +168,7 @@
             // nothing about what actually happens when one is too long.
             var counter = document.createElement('div')
             counter.className = 'tx-count'
-            wrap.appendChild(counter)
+            promptRow.appendChild(counter)
 
             var updateCounter = function () {
                 var length = prompt.value.length
@@ -177,49 +195,71 @@
             }
 
             prompt.addEventListener('input', function () {
-                setSystem(system.id, { prompt: prompt.value })
+                state.settings.prompt = prompt.value
+                markPending()
                 updateCounter()
             })
 
             updateCounter()
+            wrap.appendChild(promptRow)
 
             // Talkgroups are a switch only. A per-talkgroup prompt would be more
             // vocabulary than Whisper's prompt window can hold on a system with
             // hundreds of them, and Groq caps it at 896 characters regardless.
-            if ((system.talkgroups || []).length) {
+            if (state.talkgroups.length) {
                 var details = document.createElement('details')
                 details.className = 'tx-talkgroups'
 
                 var summary = document.createElement('summary')
-                summary.textContent = system.talkgroups.length + ' talkgroups'
+                summary.textContent = 'Per-talkgroup switches (' + state.talkgroups.length + ')'
                 details.appendChild(summary)
 
-                system.talkgroups.forEach(function (talkgroup) {
-                    details.appendChild(talkgroupRow(system, talkgroup))
+                var list = document.createElement('div')
+                list.className = 'tx-talkgroup-list'
+                state.talkgroups.forEach(function (talkgroup) {
+                    list.appendChild(talkgroupRow(talkgroup))
                 })
+                details.appendChild(list)
 
                 wrap.appendChild(details)
             }
 
+            var actions = document.createElement('div')
+            actions.className = 'tx-actions'
+
+            var save = document.createElement('button')
+            save.type = 'button'
+            save.className = 'tx-save'
+            save.textContent = 'Save transcription settings'
+            save.addEventListener('click', function () { persist(save) })
+            actions.appendChild(save)
+
+            var hint = document.createElement('span')
+            hint.className = 'tx-note tx-save-hint'
+            hint.textContent = 'Saved separately from the system’s own settings.'
+            actions.appendChild(hint)
+
+            wrap.appendChild(actions)
+
             return wrap
         }
 
-        function talkgroupRow(system, talkgroup) {
-            var key = system.id + ':' + talkgroup.id
-            var settings = state.talkgroupSettings[key] || { transcribe: true }
+        function talkgroupRow(talkgroup) {
+            var current = state.talkgroupSettings[talkgroup.id]
 
             var row = document.createElement('label')
             row.className = 'tx-talkgroup'
 
             var box = document.createElement('input')
             box.type = 'checkbox'
-            box.checked = settings.transcribe !== false
+            box.checked = !current || current.transcribe !== false
             box.addEventListener('change', function () {
-                state.talkgroupSettings[key] = {
-                    systemId: system.id,
+                state.talkgroupSettings[talkgroup.id] = {
+                    systemId: state.systemId,
                     talkgroupId: talkgroup.id,
                     transcribe: box.checked,
                 }
+                markPending()
             })
             row.appendChild(box)
 
@@ -230,72 +270,92 @@
             return row
         }
 
-        function setSystem(systemId, changes) {
-            var current = state.systemSettings[systemId] || { systemId: systemId, transcribe: true, prompt: '' }
-
-            current.systemId = systemId
-            if ('transcribe' in changes) current.transcribe = changes.transcribe
-            if ('prompt' in changes) current.prompt = changes.prompt
-
-            state.systemSettings[systemId] = current
+        function markPending() {
+            pending[state.systemId] = {
+                settings: state.settings,
+                talkgroupSettings: state.talkgroupSettings,
+            }
         }
 
         function load() {
-            ctx.api.get('settings').then(function (data) {
-                state.systems = (data && data.systems) || []
+            loadSettings(ctx).then(function (data) {
                 state.provider = (data && data.provider) || ''
                 state.promptMaxChars = (data && data.promptMaxChars) || state.promptMaxChars
                 state.globalPrompt = (data && data.globalPrompt) || ''
 
-                state.systemSettings = {}
+                var system = findSystem(data)
+                state.talkgroups = (system && system.talkgroups) || []
+                if (!state.label) state.label = (system && system.label) || ''
+
                 ;((data && data.systemSettings) || []).forEach(function (row) {
-                    state.systemSettings[row.systemId] = {
-                        systemId: row.systemId,
+                    if (!sameId(row.systemId, state.systemId)) return
+
+                    state.settings = {
+                        systemId: state.systemId,
                         transcribe: row.transcribe !== false && row.transcribe !== 0,
                         prompt: row.prompt || '',
                     }
                 })
 
-                state.talkgroupSettings = {}
                 ;((data && data.talkgroupSettings) || []).forEach(function (row) {
-                    state.talkgroupSettings[row.systemId + ':' + row.talkgroupId] = {
-                        systemId: row.systemId,
+                    if (!sameId(row.systemId, state.systemId)) return
+
+                    state.talkgroupSettings[row.talkgroupId] = {
+                        systemId: state.systemId,
                         talkgroupId: row.talkgroupId,
                         transcribe: row.transcribe !== false && row.transcribe !== 0,
                     }
                 })
 
+                // Whatever was typed before this pane was last destroyed wins
+                // over what the server last stored.
+                var unsaved = pending[state.systemId]
+                if (unsaved) {
+                    state.settings = unsaved.settings
+                    state.talkgroupSettings = unsaved.talkgroupSettings
+                }
+
                 state.loaded = true
                 render()
             }).catch(function (err) {
                 state.loaded = true
+                state.error = 'Could not load transcription settings: ' + err
                 render()
-
-                var problem = document.createElement('p')
-                problem.className = 'tx-note tx-error'
-                problem.textContent = 'Could not load transcription settings: ' + err
-                root.appendChild(problem)
             })
         }
 
-        function persist(button) {
-            var systems = Object.keys(state.systemSettings).map(function (id) {
-                return state.systemSettings[id]
-            })
+        function findSystem(data) {
+            var systems = (data && data.systems) || []
 
-            var talkgroups = Object.keys(state.talkgroupSettings).map(function (key) {
-                return state.talkgroupSettings[key]
+            for (var i = 0; i < systems.length; i++) {
+                if (sameId(systems[i].id, state.systemId)) return systems[i]
+            }
+
+            return null
+        }
+
+        function persist(button) {
+            var talkgroups = Object.keys(state.talkgroupSettings).map(function (id) {
+                return state.talkgroupSettings[id]
             })
 
             button.disabled = true
             button.textContent = 'Saving…'
 
-            ctx.api.post('settings', { systems: systems, talkgroups: talkgroups }).then(function () {
+            // Only this system. The endpoint upserts row by row and does not
+            // delete what it was not sent, so a pane can save its own settings
+            // without holding a copy of every other system's.
+            ctx.api.post('settings', { systems: [state.settings], talkgroups: talkgroups }).then(function () {
+                delete pending[state.systemId]
+                settingsRequest = null
+
                 button.disabled = false
                 button.textContent = 'Saved'
                 // Back to the resting label, so the button does not read as
                 // though it is still reporting the last save forever.
-                window.setTimeout(function () { button.textContent = 'Save transcription settings' }, 2000)
+                window.setTimeout(function () {
+                    button.textContent = 'Save transcription settings'
+                }, 2000)
             }).catch(function (err) {
                 button.disabled = false
                 button.textContent = 'Save failed — try again'
@@ -308,37 +368,50 @@
         }
     }
 
-    // Styled from the theme contract so this looks like the rest of the admin
-    // panel rather than like something bolted on.
-    function injectStyles(ctx) {
+    // System ids arrive as a number from the config form and can come back from
+    // the settings endpoint as a string, depending on the database driver.
+    function sameId(a, b) {
+        return String(a) === String(b)
+    }
+
+    function escapeHtml(text) {
+        var span = document.createElement('span')
+        span.textContent = text
+        return span.innerHTML
+    }
+
+    // Styled from the theme contract so this looks like the rest of the system
+    // editor rather than like something bolted on.
+    function injectStyles() {
         if (document.getElementById('rdio-transcripts-admin-css')) return
 
         var css = [
-            '.rdio-transcripts-admin { display: block; margin: 0 0 8px; }',
-            '.rdio-transcripts-admin .tx-header { display: block; width: 100%; padding: 16px 24px; border: 0;',
-            '  background: var(--surface-panel, #1e293b); color: var(--text-pale, #f1f5f9);',
-            '  font: inherit; font-weight: 500; text-align: left; cursor: pointer; }',
-            '.rdio-transcripts-admin .tx-header:hover { background: rgba(var(--line-rgb, 148,163,184), 0.12); }',
-            '.rdio-transcripts-admin .tx-body { padding: 8px 24px 20px; }',
-            '.rdio-transcripts-admin .tx-note { margin: 4px 0 14px; font-size: 12px; opacity: 0.75; }',
-            '.rdio-transcripts-admin .tx-error { color: var(--state-danger-text-dim, #fca5a5); opacity: 1; }',
-            '.rdio-transcripts-admin .tx-system { padding: 10px 0; border-top: 1px solid rgba(var(--line-rgb, 148,163,184), 0.2); }',
-            '.rdio-transcripts-admin .tx-system-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }',
-            '.rdio-transcripts-admin .tx-system-name { font-weight: 500; }',
-            '.rdio-transcripts-admin .tx-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }',
-            '.rdio-transcripts-admin .tx-prompt { display: block; width: 100%; margin-top: 8px; padding: 6px 8px;',
+            '.rdio-transcripts-system { display: block; margin: 8px 0 0;',
+            '  padding-top: 16px; border-top: 1px solid rgba(var(--line-rgb, 148,163,184), 0.2); }',
+            '.rdio-transcripts-system .tx-title { margin-bottom: 12px; font-weight: 500; }',
+            '.rdio-transcripts-system .tx-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }',
+            '.rdio-transcripts-system .tx-block { margin-top: 14px; }',
+            '.rdio-transcripts-system .tx-describe { margin: 0; }',
+            '.rdio-transcripts-system .tx-label { font-size: 14px; }',
+            '.rdio-transcripts-system .tx-note { font-size: 12px; opacity: 0.75; }',
+            '.rdio-transcripts-system .tx-error { color: var(--state-danger-text-dim, #fca5a5); opacity: 1; }',
+            '.rdio-transcripts-system .tx-toggle { flex: none; padding-top: 2px; cursor: pointer; }',
+            '.rdio-transcripts-system .tx-prompt { display: block; width: 100%; margin-top: 8px; padding: 6px 8px;',
             '  border: 1px solid rgba(var(--line-rgb, 148,163,184), 0.4); border-radius: 6px;',
             '  background: rgba(var(--surface-deep-rgb, 2,6,23), 0.5); color: var(--text-pale, #f1f5f9);',
             '  font: inherit; font-size: 12px; resize: vertical; box-sizing: border-box; }',
-            '.rdio-transcripts-admin .tx-count { margin-top: 4px; font-size: 11px; opacity: 0.65; }',
-            '.rdio-transcripts-admin .tx-count.tx-over { color: var(--state-danger-text-dim, #fca5a5); opacity: 1; }',
-            '.rdio-transcripts-admin .tx-talkgroups { margin-top: 8px; font-size: 12px; }',
-            '.rdio-transcripts-admin .tx-talkgroups summary { cursor: pointer; opacity: 0.75; }',
-            '.rdio-transcripts-admin .tx-talkgroup { display: flex; align-items: center; gap: 6px; padding: 3px 0 3px 16px; cursor: pointer; }',
-            '.rdio-transcripts-admin .tx-actions { margin-top: 16px; }',
-            '.rdio-transcripts-admin .tx-save { padding: 8px 16px; border: 0; border-radius: 6px;',
+            '.rdio-transcripts-system .tx-count { margin-top: 4px; font-size: 11px; opacity: 0.65; }',
+            '.rdio-transcripts-system .tx-count.tx-over { color: var(--state-danger-text-dim, #fca5a5); opacity: 1; }',
+            '.rdio-transcripts-system .tx-talkgroups { margin-top: 14px; font-size: 12px; }',
+            '.rdio-transcripts-system .tx-talkgroups summary { cursor: pointer; opacity: 0.75; }',
+            // Hundreds of talkgroups would otherwise push everything below off
+            // the page; the list scrolls in place instead.
+            '.rdio-transcripts-system .tx-talkgroup-list { max-height: 260px; margin-top: 6px; overflow-y: auto; }',
+            '.rdio-transcripts-system .tx-talkgroup { display: flex; align-items: center; gap: 6px; padding: 3px 0 3px 16px; cursor: pointer; }',
+            '.rdio-transcripts-system .tx-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }',
+            '.rdio-transcripts-system .tx-save { padding: 8px 16px; border: 0; border-radius: 6px;',
             '  background: rgba(var(--accent-rgb, 249,115,22), 0.9); color: #fff; font: inherit; cursor: pointer; }',
-            '.rdio-transcripts-admin .tx-save:disabled { opacity: 0.6; cursor: default; }',
+            '.rdio-transcripts-system .tx-save:disabled { opacity: 0.6; cursor: default; }',
         ].join('\n')
 
         var style = document.createElement('style')
