@@ -703,6 +703,15 @@ function startJob(job) {
 }
 
 function runJob(job) {
+    // An admin asking for a retranscribe is asking for exactly the overwrite
+    // the check below exists to prevent, and every call the button is offered
+    // on already has a transcript — so without this a forced job would be
+    // dropped here every time, silently and with nothing logged.
+    if (job.force) {
+        startTranscription(job)
+        return
+    }
+
     // A retry may have been overtaken by the upstream's transcript push while
     // it waited; finishing the local job anyway would overwrite it.
     storedTranscript(job.id).then(function (existing) {
@@ -801,8 +810,12 @@ function runTranscription(job, call) {
     })
 }
 
-function enqueue(id) {
-    queue.push({ id: id })
+// force re-transcribes a call that already has a transcript. Retries carry the
+// flag with them, so a forced job that comes back for another attempt is not
+// quietly downgraded into one that gives up the moment it sees its own earlier
+// result.
+function enqueue(id, options) {
+    queue.push({ id: id, force: !!(options && options.force) })
     drainQueue()
 }
 
@@ -1165,24 +1178,30 @@ rdio.routes.registerAbsolute('/api/admin/transcribe', function (req) {
         return { status: 400, body: 'transcription is not configured' }
     }
 
-    return loadCall(id, true).then(function (call) {
+    // Queued, not transcribed inline.
+    //
+    // This used to hold the HTTP request open for the whole job: read the
+    // audio, call the provider, retry it on a 429 with up to five minutes of
+    // backoff, store, emit. A single provider attempt is allowed sixty seconds
+    // and the route itself ninety, so a slow one outlived every reverse proxy
+    // in front of it — nginx gives up at sixty by default — and the admin who
+    // clicked the button got a 502 while the server was still working. The
+    // transcript then landed correctly a minute later, with nothing on screen
+    // to say so.
+    //
+    // Nothing about the answer needed the request to stay open. The queue is
+    // the same one automatic transcription uses, and it already stores the
+    // result, pushes it to every connected client over TRX, and forwards it
+    // downstream — so the browser learns the outcome the same way it learns
+    // about a transcript that was never asked for by hand.
+    return loadCall(id, false).then(function (call) {
         if (!call) return { status: 404, body: 'no such call' }
 
-        return new Promise(function (resolve) {
-            transcribe(call, 0, {}, null, function (text, err) {
-                if (err) {
-                    resolve({ status: 500, body: String(err) })
-                    return
-                }
+        enqueue(id, { force: true })
 
-                storeTranscript(id, text).then(function () {
-                    emitTranscript(id, call.system, call.talkgroup, text)
-                    resolve({ status: 200, body: { id: id, transcript: text } })
-                }).catch(function (storeErr) {
-                    resolve({ status: 500, body: String(storeErr) })
-                })
-            })
-        })
+        return { status: 202, body: { id: id, queued: true } }
+    }).catch(function (err) {
+        return { status: 500, body: String(err) }
     })
 })
 
