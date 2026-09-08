@@ -463,6 +463,21 @@ function storedTranscript(callId) {
         })
 }
 
+// Whether a failed write was another writer getting there first.
+//
+// Matched on the message because plugin SQL runs on SQLite, MySQL and
+// PostgreSQL, each of which words this differently and none of which exposes a
+// code through the plugin bridge. Only ever used to decide between "someone
+// else already wrote this" and a real failure, so a miss costs an error log
+// rather than data.
+function isDuplicateKey(err) {
+    var text = String((err && err.message) || err || '').toLowerCase()
+
+    return text.indexOf('duplicate key') !== -1 ||
+        text.indexOf('unique constraint') !== -1 ||
+        text.indexOf('duplicate entry') !== -1
+}
+
 function storeTranscript(callId, text) {
     return rdio.db.queryAsync('select `callId` from `calls` where `callId` = ?', [callId])
         .then(function (rows) {
@@ -471,6 +486,15 @@ function storeTranscript(callId, text) {
             }
 
             return rdio.db.execAsync('insert into `calls` (`callId`, `transcript`) values (?, ?)', [callId, text])
+                .catch(function (err) {
+                    // Someone inserted between the check above and here. This
+                    // path is a deliberate overwrite — a retranscribe, or an
+                    // admin correction — so finish the job as an update rather
+                    // than failing on a row that was not there when we looked.
+                    if (!isDuplicateKey(err)) throw err
+
+                    return rdio.db.execAsync('update `calls` set `transcript` = ? where `callId` = ?', [text, callId])
+                })
         })
 }
 
@@ -483,9 +507,21 @@ function storeTranscriptIfEmpty(callId, text) {
     return storedTranscript(callId).then(function (existing) {
         if (existing) return false
 
-        return storeTranscript(callId, text).then(function () {
-            return true
-        })
+        return rdio.db.execAsync('insert into `calls` (`callId`, `transcript`) values (?, ?)', [callId, text])
+            .then(function () {
+                return true
+            })
+            .catch(function (err) {
+                // The other writer won the race, which is the answer this
+                // function exists to give — first write wins — so it is a
+                // false, not a failure. Local transcription and an inbound
+                // push routinely finish within milliseconds of each other on
+                // the same call, and reporting that as an error meant a
+                // duplicate-key line in the log for every one of them.
+                if (isDuplicateKey(err)) return false
+
+                throw err
+            })
     })
 }
 
