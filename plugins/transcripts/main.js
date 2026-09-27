@@ -503,6 +503,23 @@ function storeTranscript(callId, text) {
 // a transcript already present, and does not re-broadcast or re-forward.
 //
 // Resolves true when this caller was the one that wrote.
+// recordNoText marks a call as attempted-with-no-result: the transcription
+// ran and the audio held nothing usable. An empty row where a transcript
+// would go.
+//
+// The distinction the marker draws is the one the "without transcript" filter
+// runs on: no row means missed — worth finding, worth retrying — while an
+// empty row means answered. Provider failures deliberately never come here;
+// a call lost to a rate limit must stay findable.
+//
+// Fire-and-forget: losing a marker to a crash costs one stale entry in a work
+// queue, not data.
+function recordNoText(callId) {
+    return storeTranscriptIfEmpty(callId, '').catch(function (err) {
+        rdio.log('warn', 'could not record the no-text outcome for call ' + callId + ': ' + err)
+    })
+}
+
 function storeTranscriptIfEmpty(callId, text) {
     return storedTranscript(callId).then(function (existing) {
         if (existing) return false
@@ -512,6 +529,28 @@ function storeTranscriptIfEmpty(callId, text) {
                 return true
             })
             .catch(function (err) {
+                // The row that beat us may be a terminal marker — an empty
+                // transcript recorded because the audio held nothing — and
+                // real text must be allowed to replace it. Without this, one
+                // marker would permanently reject every later push for that
+                // call: the insert collides, the collision reads as "already
+                // has one", and the actual transcript is turned away forever.
+                //
+                // The where clause is the guard: it only claims rows that are
+                // still empty, so two racing real transcripts still resolve to
+                // exactly one winner.
+                if (isDuplicateKey(err) && text) {
+                    // execAsync resolves to the affected-row count. Zero
+                    // means the row already held real text by the time the
+                    // update ran — someone else's win, reported as such.
+                    return rdio.db.execAsync(
+                        "update `calls` set `transcript` = ? where `callId` = ? and (`transcript` is null or `transcript` = '')",
+                        [text, callId]
+                    ).then(function (affected) {
+                        return Number(affected) > 0
+                    })
+                }
+
                 // The other writer won the race, which is the answer this
                 // function exists to give — first write wins — so it is a
                 // false, not a failure. Local transcription and an inbound
@@ -801,6 +840,11 @@ function startTranscription(job) {
     // for exactly that long until the host grew an async variant.
     loadCall(job.id, true).then(function (call) {
         if (!call || !call.audio || call.audio.length <= MIN_AUDIO_BYTES) {
+            // Too little audio to ever hold words. Marked like silence, and
+            // only when the call actually exists — a vanished call is not an
+            // outcome.
+            if (call) recordNoText(job.id)
+
             inFlight--
             drainQueue()
             return
@@ -844,15 +888,20 @@ function runTranscription(job, call) {
             }
 
             // Empty after sanitising means the model returned only special
-            // tokens or silence. Leaving the call untranscribed is better than
-            // storing, showing and forwarding noise.
+            // tokens or silence. Storing an empty marker rather than nothing
+            // records that the question was asked and answered: the call
+            // leaves the "without transcript" work queue — retrying it will
+            // never produce words — while the marker stays overwritable, so a
+            // real transcript arriving later from upstream still lands.
             if (!text) {
                 rdio.log('info', 'transcription produced no usable text for call ' + job.id + ' (silence/noise)')
+                recordNoText(job.id)
                 return
             }
 
             if (foreignHallucination(text)) {
                 rdio.log('info', 'transcription discarded for call ' + job.id + ' (wrong-script hallucination): ' + text)
+                recordNoText(job.id)
                 return
             }
 
