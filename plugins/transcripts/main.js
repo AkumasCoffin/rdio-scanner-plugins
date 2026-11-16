@@ -910,7 +910,24 @@ function runTranscription(job, call) {
             // same call twice.
             drained = true
 
-            storeTranscript(job.id, text).then(function () {
+            // First write wins, unless this job was asked to replace what is
+            // there. The check before the provider call is seconds old by now
+            // — up to two minutes — and an upstream's transcript for the same
+            // call routinely lands in that gap. Writing unconditionally then
+            // replaced it, told listeners a second time with different
+            // wording, and forwarded again to downstreams that had already
+            // kept the first: this instance and the ones below it ended up
+            // holding different transcripts of one call.
+            var write = job.force
+                ? storeTranscript(job.id, text).then(function () { return true })
+                : storeTranscriptIfEmpty(job.id, text)
+
+            write.then(function (stored) {
+                if (!stored) {
+                    rdio.log('info', 'call ' + job.id + ' was given a transcript while this one was being made; keeping the first')
+                    return
+                }
+
                 emitTranscript(job.id, call.system, call.talkgroup, text)
                 rdio.log('info', 'transcribed call ' + job.id + ' (' + text.length + ' chars)')
                 forwardDownstream(call.system, call.talkgroup, call.dateTime, text)
