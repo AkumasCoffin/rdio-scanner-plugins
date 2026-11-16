@@ -1433,44 +1433,102 @@ rdio.routes.register('POST', 'settings', function (req) {
         return { status: 400, body: 'invalid json' }
     }
 
+    // Everything is checked before anything is written.
+    //
+    // The rows are saved one at a time — a plugin has no transaction to put
+    // them in — so a save that failed part way used to answer 500 with the
+    // earlier rows already stored. One entry with an id that was not a
+    // number was enough, and the switches cached for the ingest path were
+    // only refreshed on success: a system just switched off went on being
+    // transcribed, while the settings pane, reading the table, showed it off.
+    var systems = Array.isArray(body.systems) ? body.systems : []
+    var talkgroups = Array.isArray(body.talkgroups) ? body.talkgroups : []
+
+    // An id as a number, or 0 if it is not one. Digits in a string count: on
+    // some servers and backends the pane is handed its ids as text, and sends
+    // them back the way it got them.
+    function toId(value) {
+        if (typeof value === 'string' && /^[0-9]+$/.test(value)) value = Number(value)
+
+        return typeof value === 'number' && isFinite(value) && value > 0 && Math.floor(value) === value ? value : 0
+    }
+
+    for (var i = 0; i < systems.length; i++) {
+        var system = systems[i] || {}
+        system.systemId = toId(system.systemId)
+
+        if (!system.systemId) {
+            return { status: 400, body: 'systems[' + i + ']: systemId must be a positive whole number' }
+        }
+        systems[i] = system
+    }
+
+    for (var j = 0; j < talkgroups.length; j++) {
+        var tg = talkgroups[j] || {}
+        tg.systemId = toId(tg.systemId)
+        tg.talkgroupId = toId(tg.talkgroupId)
+
+        if (!tg.systemId || !tg.talkgroupId) {
+            return { status: 400, body: 'talkgroups[' + j + ']: systemId and talkgroupId must be positive whole numbers' }
+        }
+        talkgroups[j] = tg
+    }
+
+    // Insert, and if the row turns out to be there — another admin saving at
+    // the same moment got in between the look and the write — update it.
+    function upsert(found, update, insert) {
+        if (found.length) return update()
+
+        return insert().catch(function (err) {
+            if (!isDuplicateKey(err)) throw err
+            return update()
+        })
+    }
+
     var chain = Promise.resolve()
 
-    ;(body.systems || []).forEach(function (system) {
-        chain = chain.then(function () {
-            return rdio.db.queryAsync('select `systemId` from `systems` where `systemId` = ?', [system.systemId])
-        }).then(function (existing) {
-            if (existing.length) {
-                return rdio.db.execAsync(
-                    'update `systems` set `transcribe` = ?, `prompt` = ? where `systemId` = ?',
-                    [!!system.transcribe, String(system.prompt || ''), system.systemId]
-                )
-            }
-
+    systems.forEach(function (system) {
+        var update = function () {
+            return rdio.db.execAsync(
+                'update `systems` set `transcribe` = ?, `prompt` = ? where `systemId` = ?',
+                [!!system.transcribe, String(system.prompt || ''), system.systemId]
+            )
+        }
+        var insert = function () {
             return rdio.db.execAsync(
                 'insert into `systems` (`systemId`, `transcribe`, `prompt`) values (?, ?, ?)',
                 [system.systemId, !!system.transcribe, String(system.prompt || '')]
             )
+        }
+
+        chain = chain.then(function () {
+            return rdio.db.queryAsync('select `systemId` from `systems` where `systemId` = ?', [system.systemId])
+        }).then(function (existing) {
+            return upsert(existing, update, insert)
         })
     })
 
-    ;(body.talkgroups || []).forEach(function (tg) {
+    talkgroups.forEach(function (tg) {
+        var update = function () {
+            return rdio.db.execAsync(
+                'update `talkgroups` set `transcribe` = ? where `systemId` = ? and `talkgroupId` = ?',
+                [!!tg.transcribe, tg.systemId, tg.talkgroupId]
+            )
+        }
+        var insert = function () {
+            return rdio.db.execAsync(
+                'insert into `talkgroups` (`systemId`, `talkgroupId`, `transcribe`) values (?, ?, ?)',
+                [tg.systemId, tg.talkgroupId, !!tg.transcribe]
+            )
+        }
+
         chain = chain.then(function () {
             return rdio.db.queryAsync(
                 'select `talkgroupId` from `talkgroups` where `systemId` = ? and `talkgroupId` = ?',
                 [tg.systemId, tg.talkgroupId]
             )
         }).then(function (found) {
-            if (found.length) {
-                return rdio.db.execAsync(
-                    'update `talkgroups` set `transcribe` = ? where `systemId` = ? and `talkgroupId` = ?',
-                    [!!tg.transcribe, tg.systemId, tg.talkgroupId]
-                )
-            }
-
-            return rdio.db.execAsync(
-                'insert into `talkgroups` (`systemId`, `talkgroupId`, `transcribe`) values (?, ?, ?)',
-                [tg.systemId, tg.talkgroupId, !!tg.transcribe]
-            )
+            return upsert(found, update, insert)
         })
     })
 
@@ -1481,6 +1539,10 @@ rdio.routes.register('POST', 'settings', function (req) {
 
         return { status: 200, body: { saved: true } }
     }).catch(function (err) {
+        // Whatever did get stored is what the table now says, and the cache
+        // has to say the same.
+        invalidateTranscribeFlags()
+
         return { status: 500, body: String(err) }
     })
 })
