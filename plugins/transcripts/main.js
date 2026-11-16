@@ -1159,11 +1159,35 @@ rdio.ws.on('TRX', function (client, payload) {
     else if (typeof payload === 'string') id = parseInt(payload, 10)
     else if (payload && payload.id) id = Number(payload.id)
 
-    if (!id) return
+    // A whole, positive id or nothing. Number() turns "1e400" into Infinity
+    // and 1.5 into 1.5, and either reached the database and logged a warning
+    // per frame — which any client could send as fast as it liked.
+    if (!isFinite(id) || id <= 0 || Math.floor(id) !== id) return
 
-    storedTranscript(id).then(function (text) {
-        rdio.ws.emit({ client: client }, 'TRX', { id: id, transcript: text })
+    // The call first, for its system and talkgroup: they go on the reply so
+    // the server can hold it back from a client whose access code does not
+    // cover that call. Without them the transcript of any call, by id, went
+    // to anyone connected — on a server restricted by access code, a listener
+    // scoped to one system could read every other system's transcripts, when
+    // asking for the same call's audio is refused.
+    //
+    // A server that predates the check ignores the two extra fields and
+    // answers as it always did.
+    loadCall(id, false).then(function (call) {
+        if (!call) return
+
+        return storedTranscript(id).then(function (text) {
+            rdio.ws.emit(
+                { client: client, system: call.system, talkgroup: call.talkgroup },
+                'TRX',
+                { id: id, transcript: text }
+            )
+        })
     }).catch(function (err) {
+        // An id that names no call is not worth a log line: the answer is
+        // simply that there is nothing to send.
+        if (/no rows/i.test(String(err))) return
+
         rdio.log('warn', 'could not read transcript for id=' + id + ': ' + err)
     })
 })
