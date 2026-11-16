@@ -169,7 +169,6 @@ do not. Target these rather than class names and your plugin keeps working acros
 | `[data-rdio="panel-stats"]` | The statistics panel |
 | `[data-rdio="panel-plugin"]` | The panel plugin views render into |
 | `[data-rdio="fab-plugin-views"]` | The floating button that opens plugin views |
-| `[data-rdio="fab-stream-edit"]` | The floating stream edit-mode button |
 
 **Main screen**
 

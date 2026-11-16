@@ -119,6 +119,23 @@ test('an exported layout round-trips unchanged', () => {
     )
 })
 
+// The file under fixtures/ was written by the built-in overlay's own code — the
+// webapp's StreamLayoutService, as it stood in 6.14.3 just before the overlay
+// was removed from the webapp — holding its defaults plus one edited item of
+// every type it offered. That code is gone now, so this file is what stands in
+// for "a layout somebody exported before the move". If importing it ever
+// changes a field, their backup has stopped being one.
+test('a file exported by the built-in overlay imports with every field unchanged', () => {
+    const { RdioStreamStore } = load()
+    const exported = fs.readFileSync(path.join(__dirname, 'fixtures', 'builtin-overlay-export.json'), 'utf8')
+
+    const store = new RdioStreamStore()
+    const result = store.importLayout(exported)
+
+    assert.strictEqual(result.success, true, result.error)
+    assert.deepStrictEqual(JSON.parse(store.exportLayout()), JSON.parse(exported))
+})
+
 test('a layout with the old frameLink type still loads', () => {
     const { RdioStreamStore } = load()
     const store = new RdioStreamStore()
