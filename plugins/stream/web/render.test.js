@@ -64,6 +64,61 @@ function test(name, fn) {
     }
 }
 
+console.log('stacking')
+
+// Stacking is document order, so a reorder has to move nodes, and these are the
+// rules for when it must. "Bring to front" used to change the stored order and
+// nothing on screen until the page was reloaded.
+test('items already in layout order are left alone', () => {
+    const { RdioStreamRenderer: R } = load()
+
+    assert.strictEqual(R.needsRestack(['a', 'b', 'c'], ['a', 'b', 'c']), false)
+    assert.strictEqual(R.needsRestack([], ['a', 'b']), false, 'nothing attached yet is not out of order')
+})
+
+test('bringing an item to the front is seen as a change', () => {
+    const { RdioStreamRenderer: R } = load()
+
+    assert.strictEqual(R.needsRestack(['a', 'b', 'c'], ['b', 'c', 'a']), true)
+    assert.strictEqual(R.needsRestack(['a', 'b', 'c'], ['c', 'a', 'b']), true, 'and so is sending one to the back')
+})
+
+test('an item not yet on the canvas does not count as out of place', () => {
+    const { RdioStreamRenderer: R } = load()
+
+    assert.strictEqual(R.needsRestack(['a', 'c'], ['a', 'b', 'c']), false)
+    assert.strictEqual(R.needsRestack(['c', 'a'], ['a', 'b', 'c']), true)
+})
+
+test('a reorder moves the nodes into layout order', () => {
+    const win = load()
+    const r = rendererWith(win, {})
+
+    // The least DOM that restack touches: a parent with ordered children.
+    const canvas = {
+        children: [],
+        appendChild(el) {
+            const at = this.children.indexOf(el)
+            if (at >= 0) this.children.splice(at, 1)
+            this.children.push(el)
+            el.parentNode = this
+        },
+    }
+    const el = (id) => ({ getAttribute: (name) => (name === 'data-id' ? id : null), parentNode: null })
+
+    r.canvas = canvas
+    r.nodes = new Map()
+    for (const id of ['a', 'b', 'c']) {
+        const node = { el: el(id) }
+        r.nodes.set(id, node)
+        canvas.appendChild(node.el)
+    }
+
+    r.restack({ items: [{ id: 'b' }, { id: 'c' }, { id: 'a' }] })
+
+    assert.deepStrictEqual(canvas.children.map((c) => c.getAttribute('data-id')), ['b', 'c', 'a'])
+})
+
 console.log('formatting')
 
 test('the call timer is a moment in the call, not an elapsed duration', () => {

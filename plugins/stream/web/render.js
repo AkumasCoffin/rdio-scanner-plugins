@@ -81,8 +81,63 @@
             this.buildItem(layout.items[j])
         }
 
+        this.restack(layout)
+
         this.signature = this.layoutSignature(layout)
         this.update()
+    }
+
+    // Whether the items on the canvas sit in a different order from the layout.
+    //
+    // Both are lists of ids. Only ids present in both are compared, so an item
+    // that has not been attached yet does not count as out of place.
+    Renderer.needsRestack = function (onCanvas, wanted) {
+        var present = {}
+        for (var i = 0; i < onCanvas.length; i++) present[onCanvas[i]] = true
+
+        var expected = []
+        for (var j = 0; j < wanted.length; j++) {
+            if (present[wanted[j]]) expected.push(String(wanted[j]))
+        }
+
+        var index = 0
+        for (var k = 0; k < onCanvas.length && index < expected.length; k++) {
+            if (String(onCanvas[k]) === expected[index]) index++
+        }
+
+        return index !== expected.length
+    }
+
+    // Puts the items on the canvas into layout order.
+    //
+    // Every item has the same z-index, so which one is in front is decided by
+    // which comes later in the document — and an item that already had a node
+    // was only ever restyled, never moved. "Bring to front" and "Send to back"
+    // therefore changed the stored order and nothing on screen, in the editor
+    // or in any other window showing the overlay, until the page was reloaded
+    // and the nodes were created afresh.
+    //
+    // Left alone when the order already matches: build() also runs on every
+    // step of a drag, and re-attaching a node mid-drag is a good way to lose
+    // the pointer.
+    Renderer.prototype.restack = function (layout) {
+        var onCanvas = []
+        var children = this.canvas.children
+        for (var i = 0; i < children.length; i++) {
+            var id = children[i].getAttribute && children[i].getAttribute('data-id')
+            if (id) onCanvas.push(id)
+        }
+
+        var wanted = layout.items.map(function (item) { return item.id })
+
+        if (!Renderer.needsRestack(onCanvas, wanted)) return
+
+        for (var j = 0; j < layout.items.length; j++) {
+            var node = this.nodes.get(layout.items[j].id)
+            if (node && node.el && node.el.parentNode === this.canvas) {
+                this.canvas.appendChild(node.el)
+            }
+        }
     }
 
     Renderer.prototype.buildItem = function (item) {
