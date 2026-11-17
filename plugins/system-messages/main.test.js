@@ -280,6 +280,12 @@ test('the key is read from X-API-Key or from Authorization: Bearer', () => {
     assert.strictEqual(m.presentedKey({ authorization: 'sm_b' }), '')
     assert.strictEqual(m.presentedKey({ authorization: 'Basic abc' }), '')
     assert.strictEqual(m.presentedKey({}), '')
+
+    // Both are offered, so a header a client library filled in with something
+    // of its own does not hide the key in the other one.
+    assert.deepStrictEqual(plain(m.presentedKeys({ 'x-api-key': 'sm_a', authorization: 'Bearer sm_b' })), ['sm_a', 'sm_b'])
+    assert.deepStrictEqual(plain(m.presentedKeys({ 'x-api-key': 'sm_a', authorization: 'Bearer sm_a' })), ['sm_a'])
+    assert.deepStrictEqual(plain(m.presentedKeys({})), [])
     assert.strictEqual(m.presentedKey(undefined), '')
 })
 
@@ -316,6 +322,53 @@ test('an admin token does not open the key API, and a key does not open the admi
     assert.strictEqual(keyAsAdmin.status, 401)
 
     assert.ok(plain(m.ROUTES).length > 0)
+})
+
+test('writes take turns, so a burst cannot all pass a limit before any has written', async () => {
+    const { m, registered } = load()
+    const create = registered.find((r) => r.method === 'POST' && r.path === 'v1/messages').handler
+
+    // A database that takes a moment over each statement and really keeps rows.
+    const rows = []
+    const later = (value) => new Promise((resolve) => setTimeout(() => resolve(value), 2))
+    m.rdio.db.queryAsync = (sql) => later(sql.includes('`keys`') ? [{ id: 1, label: 'k', hash: m.hashKey('sm_k'), createdAt: 1, lastUsedAt: null }] : rows.slice().reverse())
+    m.rdio.db.execAsync = (sql, args) => {
+        if (sql.startsWith('insert into `messages`')) {
+            return later().then(() => {
+                rows.push({ id: rows.length + 1, uid: args[0], kind: args[1], color: args[2], title: args[3], body: null, linkUrl: null, linkLabel: null, startsAt: null, endsAt: null, revision: 1, source: args[10], createdAt: args[11], updatedAt: args[12] })
+                return 1
+            })
+        }
+        return later(1)
+    }
+
+    const post = (i) => create({ headers: { 'x-api-key': 'sm_k' }, query: {}, body: JSON.stringify({ kind: 'system', title: 'burst ' + i }) })
+    const results = await Promise.all(Array.from({ length: 30 }, (_, i) => post(i)))
+
+    const limit = plain(m.LIMITS).live
+    assert.strictEqual(results.filter((r) => r.status === 201).length, limit)
+    assert.strictEqual(results.filter((r) => r.status === 409).length, 30 - limit)
+    assert.strictEqual(rows.length, limit)
+})
+
+test('a revoked key stops working even if reading the keys back fails', async () => {
+    const { m, registered } = load()
+    const find = (method, route) => registered.find((r) => r.method === method && r.path === route).handler
+
+    let failReads = false
+    m.rdio.db.queryAsync = (sql) => {
+        if (failReads) return Promise.reject(new Error('connection lost'))
+        return Promise.resolve(sql.includes('`keys`') ? [{ id: 1, label: 'k', hash: m.hashKey('sm_k'), createdAt: 1, lastUsedAt: null }] : [])
+    }
+
+    const key = { 'x-api-key': 'sm_k' }
+    assert.strictEqual((await find('GET', 'v1/messages')({ headers: key, query: {}, body: '' })).status, 200)
+
+    failReads = true
+    const revoked = await find('POST', 'admin/keys/delete')({ headers: { Authorization: 'good-token' }, query: { id: '1' }, body: '' })
+    assert.strictEqual(revoked.status, 500)
+
+    assert.strictEqual((await find('GET', 'v1/messages')({ headers: key, query: {}, body: '' })).status, 401)
 })
 
 test('openapi.json describes exactly the v1 routes that exist', () => {

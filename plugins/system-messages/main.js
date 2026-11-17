@@ -291,20 +291,28 @@ function parseId(value) {
     return /^[1-9][0-9]{0,8}$/.test(text) ? Number(text) : null
 }
 
-// The key a request presented, from X-API-Key or from Authorization: Bearer.
-function presentedKey(headers) {
+// The keys a request presented: X-API-Key first, then Authorization: Bearer.
+// Both are returned, because a client library may set one header to something
+// of its own while the caller put the key in the other.
+function presentedKeys(headers) {
     headers = headers || {}
 
+    var found = []
+
     var direct = headers['x-api-key'] || headers['X-Api-Key'] || headers['X-API-Key']
-    if (typeof direct === 'string' && direct.trim()) return direct.trim()
+    if (typeof direct === 'string' && direct.trim()) found.push(direct.trim())
 
     var authorization = headers.authorization || headers.Authorization
     if (typeof authorization === 'string') {
         var match = /^Bearer\s+(\S+)\s*$/i.exec(authorization)
-        if (match) return match[1]
+        if (match && found.indexOf(match[1]) < 0) found.push(match[1])
     }
 
-    return ''
+    return found
+}
+
+function presentedKey(headers) {
+    return presentedKeys(headers)[0] || ''
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +322,11 @@ function presentedKey(headers) {
 var messages = [] // every stored message, newest id first
 var keys = [] // {id, label, hash, createdAt, lastUsedAt}
 var ready = null // the promise of the first load
+var loaded = false // whether that load has finished
+var stale = false // a read failed, so memory may not match the database
+var recovering = false // a re-read for that is under way
 var lastSent = null // what listeners were last told, as text
+var queue = Promise.resolve() // the tail of the writes in progress
 var keyTouched = {} // key id -> when its last use was last written
 
 // Numbers are bound as text. A JavaScript number can reach the database
@@ -324,13 +336,38 @@ function num(value) {
     return value === null || value === undefined ? null : String(Math.round(value))
 }
 
+// One write at a time, each finished — statement and re-read both — before
+// the next begins.
+//
+// A handler checks a limit, then writes, and the write is asynchronous. Left
+// to interleave, a burst of requests all pass the check before any of them has
+// written, which is the one situation the limit on live messages exists for;
+// and two re-reads can finish out of order, leaving memory on the older
+// picture until something else is written.
+function serial(work) {
+    var run = queue.then(work)
+    queue = run.then(
+        function () {},
+        function () {}
+    )
+    return run
+}
+
+function failedRead(err) {
+    // The statement before this read may well have committed. Memory is then
+    // wrong and nothing would correct it — a revoked key would go on being
+    // accepted — so it is marked, and the timer reads again until it works.
+    stale = true
+    throw err
+}
+
 function loadMessages() {
     return rdio.db
         .queryAsync('select * from `messages` where `id` > ? order by `id` desc', ['0'])
         .then(function (rows) {
             messages = (rows || []).map(fromRow)
             return messages
-        })
+        }, failedRead)
 }
 
 function loadKeys() {
@@ -347,14 +384,38 @@ function loadKeys() {
                 }
             })
             return keys
-        })
+        }, failedRead)
+}
+
+// Reads everything again after a failed read, and tells listeners if what is
+// showing turned out to be different.
+function recover() {
+    if (recovering) return
+    recovering = true
+
+    serial(function () {
+        return Promise.all([loadMessages(), loadKeys()])
+    }).then(
+        function () {
+            stale = false
+            recovering = false
+            announce()
+        },
+        function () {
+            recovering = false
+        }
+    )
 }
 
 function whenReady() {
     if (!ready) {
         ready = Promise.all([loadMessages(), loadKeys()]).then(
             function () {
-                lastSent = JSON.stringify(currentWire())
+                // lastSent is left as it is, unset, so the timer's first look
+                // sends the list to everyone. A client that asked while the
+                // load was failing was told nothing and will not ask again.
+                loaded = true
+                stale = false
             },
             function (err) {
                 // Not kept: the next request tries again instead of failing
@@ -600,13 +661,14 @@ function hashKey(key) {
 }
 
 function keyFor(req) {
-    var presented = presentedKey(req.headers)
-    if (!presented) return null
+    var presented = presentedKeys(req.headers)
 
-    var hash = hashKey(presented)
+    for (var p = 0; p < presented.length; p++) {
+        var hash = hashKey(presented[p])
 
-    for (var i = 0; i < keys.length; i++) {
-        if (keys[i].hash === hash) return keys[i]
+        for (var i = 0; i < keys.length; i++) {
+            if (keys[i].hash === hash) return keys[i]
+        }
     }
 
     return null
@@ -682,7 +744,14 @@ function deleteKey(req) {
 
     return rdio.db
         .execAsync('delete from `keys` where `id` = ?', [num(id)])
-        .then(loadKeys)
+        .then(function () {
+            // Out of memory before the re-read, so that a re-read that fails
+            // cannot leave a revoked key being accepted.
+            keys = keys.filter(function (key) {
+                return key.id !== id
+            })
+            return loadKeys()
+        })
         .then(function () {
             delete keyTouched[id]
             return { status: 204 }
@@ -730,7 +799,13 @@ function route(method, path, who, handler) {
                         : fail(401, 'a valid API key is required, in the X-API-Key header')
                 }
 
-                return handler(req, caller)
+                // Reads answer from memory. Anything else changes it, and
+                // takes its turn.
+                if (method === 'GET') return handler(req, caller)
+
+                return serial(function () {
+                    return handler(req, caller)
+                })
             })
             .then(null, function (err) {
                 rdio.log('error', 'system-messages: ' + method + ' ' + path + ' failed: ' + err)
@@ -832,6 +907,12 @@ rdio.on('startup', function () {
 // Nothing is written when a scheduled message starts or a running one runs
 // out, so the clock has to be watched.
 rdio.schedule(2000, function () {
-    if (lastSent === null) return
+    if (!loaded) return
+
+    if (stale) {
+        recover()
+        return
+    }
+
     announce()
 })

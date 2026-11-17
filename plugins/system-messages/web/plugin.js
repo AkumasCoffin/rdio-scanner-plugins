@@ -342,6 +342,15 @@ window.rdioScanner.plugins.register('system-messages', {
                     var first = stops[0]
                     var last = stops[stops.length - 1]
 
+                    // Focus is outside the card — the button that had it was
+                    // redrawn, or the text was clicked. Bring it back in
+                    // rather than letting Tab walk the page underneath.
+                    if (!card.contains(document.activeElement)) {
+                        event.preventDefault()
+                        ;(event.shiftKey ? last : first).focus()
+                        return
+                    }
+
                     if (event.shiftKey && document.activeElement === first) {
                         event.preventDefault()
                         last.focus()
@@ -356,13 +365,28 @@ window.rdioScanner.plugins.register('system-messages', {
                 document.removeEventListener('keydown', onKey, true)
                 if (overlay.parentNode) overlay.parentNode.removeChild(overlay)
                 dialog = null
-                if (returnTo && typeof returnTo.focus === 'function' && document.contains(returnTo)) returnTo.focus()
+
+                // Back to where it was opened from. That row may have been
+                // redrawn while the card was open, in which case the first
+                // thing in the strip is the nearest there is.
+                var target = returnTo && document.contains(returnTo) ? returnTo : null
+                if (!target) {
+                    for (var i = 0; i < strips.length && !target; i++) {
+                        target = strips[i].querySelector('.sysmsg-row, .sysmsg-chip')
+                    }
+                }
+                if (target && typeof target.focus === 'function') target.focus()
             }
 
             dialog = {
                 close: closeDialog,
                 render: function () {
+                    // Redrawing removes whichever button was pressed, and
+                    // focus with it.
+                    var hadFocus = list.contains(document.activeElement)
+
                     clear(list)
+                    if (hadFocus) shut.focus()
 
                     if (!messages.length) {
                         list.appendChild(h('p', { class: 'sysmsg-none', text: 'There are no messages at the moment.' }))
@@ -422,6 +446,7 @@ window.rdioScanner.plugins.register('system-messages', {
         // this one, whose settings are a panel of its own. So the button is
         // taken over: enabled, and made to open the panel inside the card.
         var inCard = false
+        var dropFallback = null
 
         ctx.dom.attach('[data-rdio="admin-plugins"] .plugin-card', function (el) {
             var card = el.parentElement
@@ -430,21 +455,30 @@ window.rdioScanner.plugins.register('system-messages', {
                 return
             }
 
+            // The panel under the list is only for when the card cannot be
+            // found. If the list was slow to arrive it is already there, and
+            // would otherwise stay as a second copy.
+            inCard = true
+            if (dropFallback) dropFallback()
+
             var button = settingsButton(card)
             if (!button) {
                 // No button to open it with: show it in the card, open.
-                inCard = true
                 return mountAdmin(el)
             }
-
-            inCard = true
 
             var label = button.querySelector('.mat-button-wrapper') || button
             var close = null
 
             function toggle(event) {
+                // Immediate, because the admin page's own handler is on this
+                // same button. Stopping propagation alone only spares it when
+                // the click lands on the label inside; pressed with the
+                // keyboard, or clicked on its edge, the button is the target
+                // and both handlers would run — opening the page's empty
+                // settings form as well as this panel.
                 event.preventDefault()
-                event.stopPropagation()
+                event.stopImmediatePropagation()
 
                 if (close) {
                     close()
@@ -476,7 +510,7 @@ window.rdioScanner.plugins.register('system-messages', {
         function isOwnCard(card) {
             // Newer servers mark each card with the plugin it belongs to;
             // older ones are told apart by the name on the card.
-            var marked = card.getAttribute('data-rdio-plugin')
+            var marked = card.getAttribute('data-rdio-plugin-id')
             if (marked) return marked === ctx.plugin.id
 
             // The same class is used for the cards of plugins on offer from a
@@ -504,13 +538,23 @@ window.rdioScanner.plugins.register('system-messages', {
         ctx.slots.mount('admin-panel', function (el) {
             var teardown = null
 
+            function drop() {
+                if (teardown) teardown()
+                teardown = null
+                clear(el)
+                el.className = ''
+            }
+
+            dropFallback = drop
+
             var timer = window.setTimeout(function () {
                 if (!inCard) teardown = mountAdmin(el)
             }, 1500)
 
             return function () {
                 window.clearTimeout(timer)
-                if (teardown) teardown()
+                if (dropFallback === drop) dropFallback = null
+                drop()
             }
         })
 
@@ -520,6 +564,7 @@ window.rdioScanner.plugins.register('system-messages', {
             var editing = null // the id being edited, or null for a new one
             var newKey = null // {label, key} just created; shown once
             var confirming = null // 'message:3' or 'key:2' awaiting a yes
+            var keyLabel = '' // what has been typed for a new key so far
             var busy = false
             var alive = true
 
@@ -616,6 +661,15 @@ window.rdioScanner.plugins.register('system-messages', {
             // the kind's default. So switching kind moves the colour with it,
             // and editing an older message in a colour its kind no longer
             // offers starts from the default rather than an impossible choice.
+            // The moment a time field stands for: what was typed, or — if the
+            // field still shows the time the message already had — that time
+            // to the millisecond.
+            function timeOf(key) {
+                var was = form[key + 'Was']
+                if (was && form[key] === toLocalInput(was)) return Date.parse(was)
+                return fromLocalInput(form[key])
+            }
+
             function formColor() {
                 return COLORS[form.kind].indexOf(form.color) >= 0 ? form.color : DEFAULT_COLOR[form.kind]
             }
@@ -637,6 +691,10 @@ window.rdioScanner.plugins.register('system-messages', {
                     linkLabel: message.linkLabel || '',
                     startsAt: toLocalInput(message.startsAt),
                     endsAt: toLocalInput(message.endsAt),
+                    // The form shows minutes. Kept so that a time which was
+                    // not touched is sent back exactly, seconds and all.
+                    startsAtWas: message.startsAt,
+                    endsAtWas: message.endsAt,
                 }
                 say('')
                 renderForm()
@@ -675,8 +733,8 @@ window.rdioScanner.plugins.register('system-messages', {
                     body: form.body,
                     linkUrl: form.linkUrl.trim(),
                     linkLabel: form.linkLabel,
-                    startsAt: fromLocalInput(form.startsAt),
-                    endsAt: fromLocalInput(form.endsAt),
+                    startsAt: timeOf('startsAt'),
+                    endsAt: timeOf('endsAt'),
                 }
 
                 var wasEditing = editing
@@ -694,7 +752,9 @@ window.rdioScanner.plugins.register('system-messages', {
                 )
             }
 
-            function renderForm() {
+            // `focus` names what to put focus back on: choosing a kind or a
+            // colour redraws the form, and the button that was pressed with it.
+            function renderForm(focus) {
                 clear(formHost)
 
                 var preview = h('div', { class: 'sysmsg-preview' })
@@ -761,7 +821,7 @@ window.rdioScanner.plugins.register('system-messages', {
                             text: KIND_LABEL[kind],
                             onclick: function () {
                                 form.kind = kind
-                                renderForm()
+                                renderForm('.sysmsg-segment-on')
                             },
                         })
                     })
@@ -781,7 +841,7 @@ window.rdioScanner.plugins.register('system-messages', {
                             class: 'sysmsg-swatch sysmsg-c-' + color + (on ? ' sysmsg-swatch-on' : ''),
                             onclick: function () {
                                 form.color = color
-                                renderForm()
+                                renderForm('.sysmsg-swatch-on')
                             },
                         })
                     })
@@ -817,6 +877,11 @@ window.rdioScanner.plugins.register('system-messages', {
 
                 formHost.appendChild(el)
                 repaint()
+
+                if (focus) {
+                    var again = el.querySelector(focus)
+                    if (again) again.focus()
+                }
             }
 
             // "Delete" becomes "Delete? Yes / No" in place, rather than a
@@ -933,7 +998,12 @@ window.rdioScanner.plugins.register('system-messages', {
                 clear(keysHost)
 
                 var base = new URL('api/plugin/system-messages/v1/', document.baseURI).href
-                var label = h('input', { type: 'text', class: 'sysmsg-input', placeholder: 'What will use this key', maxlength: String(LIMITS.keyLabel), 'aria-label': 'Key label' })
+                // Redrawn after every action, so what was being typed is kept
+                // outside it.
+                var label = h('input', { type: 'text', class: 'sysmsg-input', value: keyLabel, placeholder: 'What will use this key', maxlength: String(LIMITS.keyLabel), 'aria-label': 'Key label' })
+                label.addEventListener('input', function () {
+                    keyLabel = label.value
+                })
 
                 var panel = h('div', { class: 'sysmsg-panel' }, [
                     h('h3', { class: 'sysmsg-panel-title', text: 'API keys' }),
@@ -953,17 +1023,43 @@ window.rdioScanner.plugins.register('system-messages', {
                         text: 'Copy',
                         onclick: function () {
                             var done = function () { copy.textContent = 'Copied' }
+
+                            // The clipboard API exists only on https and on
+                            // localhost. A scanner reached over plain http on
+                            // a local network has neither, so the key is
+                            // selected and copied the older way — and if that
+                            // fails too it is at least left selected.
+                            function byHand() {
+                                var ok = false
+                                try {
+                                    var range = document.createRange()
+                                    range.selectNodeContents(keyText)
+                                    var selection = window.getSelection()
+                                    selection.removeAllRanges()
+                                    selection.addRange(range)
+                                    ok = document.execCommand('copy')
+                                } catch (err) {
+                                    ok = false
+                                }
+                                if (ok) done()
+                                else copy.textContent = 'Press Ctrl+C'
+                            }
+
                             if (navigator.clipboard && navigator.clipboard.writeText) {
-                                navigator.clipboard.writeText(newKey.key).then(done, function () {})
+                                navigator.clipboard.writeText(newKey.key).then(done, byHand)
+                            } else {
+                                byHand()
                             }
                         },
                     })
+
+                    var keyText = h('code', { class: 'sysmsg-code sysmsg-code-key', text: newKey.key })
 
                     panel.appendChild(
                         h('div', { class: 'sysmsg-newkey' }, [
                             h('div', { class: 'sysmsg-label', text: 'Key for "' + newKey.label + '" — copy it now. It is not stored and cannot be shown again.' }),
                             h('div', { class: 'sysmsg-newkey-row' }, [
-                                h('code', { class: 'sysmsg-code sysmsg-code-key', text: newKey.key }),
+                                keyText,
                                 copy,
                                 h('button', {
                                     type: 'button',
@@ -1019,6 +1115,7 @@ window.rdioScanner.plugins.register('system-messages', {
                                     function () { return send('POST', 'admin/keys', { label: text }) },
                                     function (res) {
                                         newKey = { label: res.label, key: res.key }
+                                        keyLabel = ''
                                         say('Key created.')
                                     }
                                 )
@@ -1044,6 +1141,12 @@ window.rdioScanner.plugins.register('system-messages', {
             // then while the panel is open.
             var timer = window.setInterval(function () {
                 if (busy || confirming || document.hidden) return
+
+                // Reading again redraws the lists, which takes focus from
+                // whatever in them has it. Not while someone is in the middle
+                // of something here.
+                if (listHost.contains(document.activeElement) || keysHost.contains(document.activeElement)) return
+
                 refresh().then(null, function () {})
             }, 30000)
 
