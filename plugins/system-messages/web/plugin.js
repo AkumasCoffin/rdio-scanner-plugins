@@ -18,14 +18,30 @@ window.rdioScanner.plugins.register('system-messages', {
         var KINDS = ['system', 'maintenance']
         var KIND_LABEL = { system: 'System', maintenance: 'Maintenance' }
         var KIND_HEADING = { system: 'System messages', maintenance: 'Maintenance' }
-        // Each kind has its own three colours; the first is its default.
-        var COLORS = { system: ['green', 'yellow', 'purple'], maintenance: ['blue', 'amber', 'red'] }
+        // Each kind has its own five colours, calm to serious; the first is
+        // its default.
+        var COLORS = {
+            system: ['green', 'teal', 'purple', 'yellow', 'pink'],
+            maintenance: ['blue', 'amber', 'orange', 'red', 'grey'],
+        }
         var DEFAULT_COLOR = { system: 'green', maintenance: 'blue' }
-        // Every colour there is a shade for. Wider than what can be chosen
-        // now: a message stored by version 1.0 may be in orange or grey, or
-        // in a colour that has since moved to the other kind, and is still
-        // shown in the colour it was given.
-        var KNOWN_COLORS = ['blue', 'green', 'amber', 'yellow', 'orange', 'red', 'purple', 'grey']
+        // What each is for, shown beside the swatches.
+        var COLOR_HINT = {
+            green: 'All clear, or restored',
+            teal: 'Information',
+            purple: 'A notice',
+            yellow: 'Degraded',
+            pink: 'An outage',
+            blue: 'Planned',
+            amber: 'Starting soon',
+            orange: 'Running over',
+            red: 'Under way',
+            grey: 'Finished, or called off',
+        }
+        // Every colour there is a shade for. A message stored by version 1.0
+        // may be in a colour that has since moved to the other kind, and is
+        // still shown in the colour it was given.
+        var KNOWN_COLORS = ['blue', 'green', 'teal', 'amber', 'yellow', 'orange', 'red', 'pink', 'purple', 'grey']
         var LIMITS = { title: 80, body: 500, linkUrl: 500, linkLabel: 60, keyLabel: 60 }
         var CLOSED_KEY = 'rdio-system-messages-closed'
 
@@ -836,8 +852,8 @@ window.rdioScanner.plugins.register('system-messages', {
                             type: 'button',
                             role: 'radio',
                             'aria-checked': on ? 'true' : 'false',
-                            'aria-label': color,
-                            title: color,
+                            'aria-label': color + ': ' + COLOR_HINT[color],
+                            title: color + ' — ' + COLOR_HINT[color],
                             class: 'sysmsg-swatch sysmsg-c-' + color + (on ? ' sysmsg-swatch-on' : ''),
                             onclick: function () {
                                 form.color = color
@@ -859,7 +875,11 @@ window.rdioScanner.plugins.register('system-messages', {
                     h('h3', { class: 'sysmsg-panel-title', text: editing === null ? 'New message' : 'Edit message' }),
                     h('div', { class: 'sysmsg-grid' }, [
                         h('div', { class: 'sysmsg-field' }, [h('span', { class: 'sysmsg-label', text: 'Kind' }), kindButtons]),
-                        h('div', { class: 'sysmsg-field' }, [h('span', { class: 'sysmsg-label', text: 'Colour' }), swatches]),
+                        h('div', { class: 'sysmsg-field' }, [
+                            h('span', { class: 'sysmsg-label', text: 'Colour' }),
+                            swatches,
+                            h('span', { class: 'sysmsg-hint', text: COLOR_HINT[formColor()] }),
+                        ]),
                     ]),
                     field('Title', title, counted('title', LIMITS.title, title)),
                     field('Text (optional)', body, counted('body', LIMITS.body, body)),
@@ -1164,9 +1184,11 @@ window.rdioScanner.plugins.register('system-messages', {
             var rgb = {
                 blue: '56, 132, 255',
                 green: '34, 170, 98',
-                amber: '240, 150, 20',
+                amber: '245, 170, 35',
                 yellow: '240, 208, 40',
-                orange: '245, 124, 32',
+                teal: '20, 172, 166',
+                pink: '236, 72, 153',
+                orange: '234, 98, 20',
                 red: '232, 65, 65',
                 purple: '157, 106, 245',
                 grey: '136, 146, 160',
@@ -1260,6 +1282,7 @@ window.rdioScanner.plugins.register('system-messages', {
                     '.sysmsg-swatches { display: flex; flex-wrap: wrap; gap: 8px; }',
                     '.sysmsg-swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid transparent; background: rgb(var(--sysmsg-rgb)); cursor: pointer; }',
                     '.sysmsg-swatch-on { border-color: var(--text-bright, #fff); box-shadow: 0 0 0 2px rgb(var(--sysmsg-rgb)); }',
+                    '.sysmsg-hint { font-size: 0.78rem; color: var(--text-muted, inherit); }',
                     '.sysmsg-preview { max-width: 640px; }',
                     '.sysmsg-actions { display: flex; flex-wrap: wrap; gap: 8px; }',
                     '.sysmsg-button { padding: 8px 14px; font: inherit; font-size: 0.85rem; cursor: pointer; white-space: nowrap; color: var(--text-bright, inherit);',

@@ -74,9 +74,9 @@ test('a minimal message is accepted and filled in', () => {
     assert.strictEqual(m.validateMessage({ kind: 'maintenance', title: 'x' }).value.color, 'blue')
 })
 
-test('each kind takes its own three colours, and not the other kind\'s', () => {
+test('each kind takes its own five colours, and not the other kind\'s', () => {
     const { m } = load()
-    const own = { system: ['green', 'yellow', 'purple'], maintenance: ['blue', 'amber', 'red'] }
+    const own = { system: ['green', 'teal', 'purple', 'yellow', 'pink'], maintenance: ['blue', 'amber', 'orange', 'red', 'grey'] }
 
     assert.deepStrictEqual(plain(m.COLORS), own)
 
@@ -89,14 +89,24 @@ test('each kind takes its own three colours, and not the other kind\'s', () => {
         for (const color of own[other]) {
             assert.match(m.validateMessage({ kind, title: 'x', color }).error, new RegExp(own[kind].join(', ')), `${kind} ${color}`)
         }
-        // Colours version 1.0 offered and this one does not.
-        for (const color of ['orange', 'grey', 'pink', 'GREEN', '#ff0000', 7, {}]) {
+        for (const color of ['brown', 'white', 'GREEN', 'Blue', '#ff0000', 7, {}]) {
             assert.ok(m.validateMessage({ kind, title: 'x', color }).error, `${kind} ${String(color)}`)
         }
     }
 
     // No colour belongs to both kinds, or the colour would not tell them apart.
     assert.strictEqual(own.system.filter((c) => own.maintenance.includes(c)).length, 0)
+
+    // The webapp offers the same colours, has a shade for each, and says what
+    // each is for.
+    const web = fs.readFileSync(path.join(__dirname, 'web', 'plugin.js'), 'utf8')
+    for (const kind of Object.keys(own)) {
+        assert.ok(web.includes(kind + ": ['" + own[kind].join("', '") + "']"), `web/plugin.js offers different ${kind} colours`)
+        for (const color of own[kind]) {
+            assert.match(web, new RegExp('\\n\\s+' + color + ": '\\d+, \\d+, \\d+'"), `no shade for ${color}`)
+            assert.match(web, new RegExp('\\n\\s+' + color + ": '[A-Z]"), `no description for ${color}`)
+        }
+    }
 })
 
 test('kind must be one of the two', () => {

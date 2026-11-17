@@ -14,13 +14,27 @@ var COMMAND = 'SYM'
 
 var KINDS = ['system', 'maintenance']
 
-// Each kind has its own three colours, so the colour alone says which kind a
+// Each kind has its own five colours, so the colour alone says which kind a
 // message is: nothing a maintenance message can be shown in is a colour a
-// system message can have. The first of each is the one used when none is
-// given.
+// system message can have. Each set runs from calm to serious, and the first
+// is the one used when none is given.
+//
+//   system       what is being received
+//     green      all clear, or restored
+//     teal       information
+//     purple     a notice
+//     yellow     degraded
+//     pink       an outage
+//
+//   maintenance  work on the server
+//     blue       planned
+//     amber      starting soon
+//     orange     running over
+//     red        under way
+//     grey       finished, or called off
 var COLORS = {
-    system: ['green', 'yellow', 'purple'],
-    maintenance: ['blue', 'amber', 'red'],
+    system: ['green', 'teal', 'purple', 'yellow', 'pink'],
+    maintenance: ['blue', 'amber', 'orange', 'red', 'grey'],
 }
 
 var DEFAULT_COLOR = { system: COLORS.system[0], maintenance: COLORS.maintenance[0] }

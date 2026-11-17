@@ -25,7 +25,7 @@ In the administration page, open **Plugins** and press **Settings** on the Syste
 | Field | |
 |---|---|
 | Kind | **System** for something about what is being received; **Maintenance** for work on the server. |
-| Colour | System messages are green, yellow or purple; maintenance messages are blue, amber or red. The first of each is the one it starts on. |
+| Colour | Five for each kind — see below. The first of each is the one it starts on. |
 | Title | Up to 80 characters. |
 | Text | Optional, up to 500 characters. Line breaks are kept. |
 | Link | Optional. One `http://` or `https://` address, and the words to show it as. |
@@ -34,8 +34,19 @@ In the administration page, open **Plugins** and press **Settings** on the Syste
 
 The text is plain text. Markup typed into a message is shown as it was typed.
 
-The colours are split by kind so that a colour never means two things. Messages posted with version
-1.0, which let either kind use any colour, keep the colour they have until they are edited.
+The colours are split by kind so that a colour never means two things, and each set runs from calm
+to serious:
+
+| System | | Maintenance | |
+|---|---|---|---|
+| Green | All clear, or restored | Blue | Planned |
+| Teal | Information | Amber | Starting soon |
+| Purple | A notice | Orange | Running over |
+| Yellow | Degraded | Red | Under way |
+| Pink | An outage | Grey | Finished, or called off |
+
+The meanings are there to pick by; nothing enforces them. Messages posted with version 1.0, which
+let either kind use any colour, keep the colour they have until they are edited.
 
 **End now** takes a message down and keeps it in the list; **Delete** removes it. Listeners see either
 within a couple of seconds, without reloading.
