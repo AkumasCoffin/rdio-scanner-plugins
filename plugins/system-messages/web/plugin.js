@@ -408,8 +408,104 @@ window.rdioScanner.plugins.register('system-messages', {
         // The admin page
         // -------------------------------------------------------------------
 
+        // The panel opens from the Settings button on this plugin's own card
+        // in the plugin list, which is where anyone looks for it.
+        //
+        // The server draws that button for the settings form it builds from a
+        // manifest, and leaves it disabled for a plugin that declares none —
+        // this one, whose settings are a panel of its own. So the button is
+        // taken over: enabled, and made to open the panel inside the card.
+        var inCard = false
+
+        ctx.dom.attach('[data-rdio="admin-plugins"] .plugin-card', function (el) {
+            var card = el.parentElement
+            if (!card || !isOwnCard(card)) {
+                el.style.display = 'none'
+                return
+            }
+
+            var button = settingsButton(card)
+            if (!button) {
+                // No button to open it with: show it in the card, open.
+                inCard = true
+                return mountAdmin(el)
+            }
+
+            inCard = true
+
+            var label = button.querySelector('.mat-button-wrapper') || button
+            var close = null
+
+            function toggle(event) {
+                event.preventDefault()
+                event.stopPropagation()
+
+                if (close) {
+                    close()
+                    close = null
+                    clear(el)
+                    el.className = ''
+                    label.textContent = ' Settings '
+                } else {
+                    close = mountAdmin(el)
+                    label.textContent = ' Close settings '
+                    el.scrollIntoView({ block: 'nearest' })
+                }
+
+                button.setAttribute('aria-expanded', close ? 'true' : 'false')
+            }
+
+            button.disabled = false
+            button.removeAttribute('disabled')
+            button.classList.remove('mat-button-disabled')
+            button.setAttribute('aria-expanded', 'false')
+            button.addEventListener('click', toggle, true)
+
+            return function () {
+                button.removeEventListener('click', toggle, true)
+                if (close) close()
+            }
+        })
+
+        function isOwnCard(card) {
+            // Newer servers mark each card with the plugin it belongs to;
+            // older ones are told apart by the name on the card.
+            var marked = card.getAttribute('data-rdio-plugin')
+            if (marked) return marked === ctx.plugin.id
+
+            // The same class is used for the cards of plugins on offer from a
+            // repository, this one among them. Only an installed plugin's card
+            // has the row of Settings, Uninstall and Purge buttons.
+            if (!card.querySelector('.plugin-actions')) return false
+
+            var name = card.querySelector('.plugin-name')
+            return !!name && name.textContent.trim() === ctx.plugin.name
+        }
+
+        function settingsButton(card) {
+            var marked = card.querySelector('[data-rdio="plugin-settings"]')
+            if (marked) return marked
+
+            var buttons = card.querySelectorAll('.plugin-actions button')
+            for (var i = 0; i < buttons.length; i++) {
+                if (/^(close settings|settings)$/i.test(buttons[i].textContent.trim())) return buttons[i]
+            }
+            return null
+        }
+
+        // Under the plugin list, where it used to be: only if the card could
+        // not be found, so the panel is never out of reach.
         ctx.slots.mount('admin-panel', function (el) {
-            return mountAdmin(el)
+            var teardown = null
+
+            var timer = window.setTimeout(function () {
+                if (!inCard) teardown = mountAdmin(el)
+            }, 1500)
+
+            return function () {
+                window.clearTimeout(timer)
+                if (teardown) teardown()
+            }
         })
 
         function mountAdmin(root) {
@@ -1029,7 +1125,7 @@ window.rdioScanner.plugins.register('system-messages', {
                     '.sysmsg-text-button:hover { text-decoration: underline; }',
                     '.sysmsg-danger { color: var(--state-danger, #ef4444); }',
 
-                    '.sysmsg-admin { margin-top: 24px; max-width: 1000px; font-family: var(--font-sans, inherit); color: var(--text-main, inherit); display: flex; flex-direction: column; gap: 12px; }',
+                    '.sysmsg-admin { margin-top: 16px; max-width: 1000px; font-family: var(--font-sans, inherit); color: var(--text-main, inherit); display: flex; flex-direction: column; gap: 12px; }',
                     '.sysmsg-admin-title { margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-bright, inherit); }',
                     '.sysmsg-admin-lede { margin: 0; font-size: 0.85rem; line-height: 1.5; color: var(--text-muted, inherit); max-width: 90ch; }',
                     '.sysmsg-panel { display: flex; flex-direction: column; gap: 12px; padding: 16px; margin-top: 4px;',

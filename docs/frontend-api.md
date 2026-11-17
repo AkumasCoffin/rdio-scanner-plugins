@@ -225,6 +225,8 @@ button is added or reworded.
 | `[data-rdio="admin-stats"]` | The Dashboard tab's content |
 | `[data-rdio="admin-config"]` | The config host, shared by the Options / Systems / Groups & Tags / Access / API Keys / Dirwatch / Downstreams tabs |
 | `[data-rdio="admin-plugins"]` | The Plugins tab's content |
+| `[data-rdio="plugin-card"]` | One installed plugin's card in the Plugins tab; `data-rdio-plugin` holds the plugin id. From the server release after 6.14.4-beta.2 |
+| `[data-rdio="plugin-settings"]` | The Settings button on that card. Disabled for a plugin that declares no `config`; a plugin with a settings panel of its own can enable it and open the panel from it, as system-messages does |
 | `[data-rdio="admin-logs"]` | The Logs tab's content |
 | `[data-rdio="admin-tools"]` | The Tools tab's content |
 | `[data-rdio="admin-logout"]` | The Logout button in the header |

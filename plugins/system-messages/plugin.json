@@ -1,7 +1,7 @@
 {
   "id": "system-messages",
   "name": "System Messages",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "apiVersion": 1,
   "description": "Shows system and maintenance messages to listeners above the scanner display, with an HTTP API for posting them from other programs.",
   "author": "Rdio Scanner",

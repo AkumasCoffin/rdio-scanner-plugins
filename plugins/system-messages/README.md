@@ -20,7 +20,7 @@ builds of the app show nothing.
 
 ## Posting a message
 
-In the administration page, open **Plugins** and scroll to **System Messages**.
+In the administration page, open **Plugins** and press **Settings** on the System Messages card.
 
 | Field | |
 |---|---|
@@ -44,7 +44,7 @@ At most 20 messages can be showing or scheduled at once.
 Other programs can post, change and end messages — a monitoring check that notices a feed has
 stopped, a deploy script announcing a restart.
 
-1. Under **System Messages → API keys**, name what will use the key and press **Create key**. The key
+1. In the same Settings panel, under **API keys**, name what will use the key and press **Create key**. The key
    is shown once; only a hash of it is stored.
 2. Send it as `X-API-Key`, or as `Authorization: Bearer <key>`.
 
