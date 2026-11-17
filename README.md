@@ -26,6 +26,7 @@ explicit "purge" action.
 |---|---|
 | [transcripts](plugins/transcripts) | Transcribes call audio with Whisper and shows it in the scanner. Part of the server until 6.14; renders identically. Announces transcripts to other plugins. |
 | [stream](plugins/stream) | The OBS overlay at `/stream` — a configurable canvas of readouts, borders and the transcript, with no application chrome around it. Also part of the server until 6.14. |
+| [system-messages](plugins/system-messages) | System and maintenance messages shown to listeners above the scanner display, managed from the admin page or over an HTTP API with its own keys and an OpenAPI description. |
 | [hello-world](plugins/hello-world) | Reference plugin. Small enough to read in one sitting; demonstrates config, a table, watching calls, changing one, a websocket command, an HTTP endpoint and a frontend. |
 
 ## Repository layout

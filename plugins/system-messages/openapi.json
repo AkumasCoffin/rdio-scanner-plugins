@@ -1,0 +1,446 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Rdio Scanner — System Messages API",
+    "version": "1.0.0",
+    "summary": "Post, change and remove the messages listeners see above the scanner display.",
+    "description": "The System Messages plugin shows notices to everyone listening: system messages (\"County Fire is not being received\") and maintenance messages (\"The server restarts at 22:00\"). This API lets another program — a monitoring check, a deploy script, a chat bot — post and manage those messages.\n\n**Keys.** Every request except the one for this document needs an API key, created in the administration page under Plugins → System Messages → API keys. A key is shown once, when it is created. Send it in the `X-API-Key` header, or as `Authorization: Bearer <key>`. These keys are separate from the server's upload API keys and from the administrator's login.\n\n**Times.** Times are sent as ISO 8601 date-times with a zone (`2026-03-01T22:00:00Z`) or as a number of milliseconds since the Unix epoch, and are always returned as ISO 8601 in UTC. A message with no `startsAt` shows as soon as it is posted; a message with no `endsAt` shows until it is ended or deleted.\n\n**What listeners see.** A message shows while its state is `active`. Listeners connected at the time are told within a few seconds of any change, without reloading. A listener can close a message; replacing it with `PUT` shows it to them again.\n\n**Limits.** At most 20 messages may be showing or scheduled at once, and at most 500 stored. A request over either limit is refused with 409.",
+    "license": {
+      "name": "GPL-3.0",
+      "identifier": "GPL-3.0-only"
+    }
+  },
+  "servers": [
+    {
+      "url": "{server}/api/plugin/system-messages",
+      "description": "Your Rdio Scanner server",
+      "variables": {
+        "server": {
+          "default": "http://localhost:3000",
+          "description": "The address the scanner is served at, without a trailing slash."
+        }
+      }
+    }
+  ],
+  "tags": [
+    { "name": "Messages", "description": "The messages shown to listeners." },
+    { "name": "Contract", "description": "This document." }
+  ],
+  "security": [{ "apiKey": [] }, { "bearer": [] }],
+  "paths": {
+    "/v1/messages": {
+      "get": {
+        "tags": ["Messages"],
+        "operationId": "listMessages",
+        "summary": "List messages",
+        "description": "Every stored message, newest first — scheduled, active and ended. With `active=true`, only the messages listeners are being shown right now, in the order they are shown: system messages first, then maintenance, the most recent first within each.",
+        "parameters": [
+          {
+            "name": "active",
+            "in": "query",
+            "required": false,
+            "description": "Set to `true` to list only what listeners see now.",
+            "schema": { "type": "boolean", "default": false }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The messages.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MessageList" },
+                "examples": {
+                  "one": {
+                    "summary": "One active message",
+                    "value": {
+                      "messages": [
+                        {
+                          "id": 12,
+                          "kind": "system",
+                          "color": "red",
+                          "title": "County Fire is not being received",
+                          "body": "The north tower feed dropped at 14:05. We are working on it.",
+                          "linkUrl": "https://status.example.com/incidents/31",
+                          "linkLabel": "Status page",
+                          "startsAt": null,
+                          "endsAt": null,
+                          "state": "active",
+                          "revision": 1,
+                          "source": "monitoring",
+                          "createdAt": "2026-03-01T14:06:11.000Z",
+                          "updatedAt": "2026-03-01T14:06:11.000Z"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      },
+      "post": {
+        "tags": ["Messages"],
+        "operationId": "createMessage",
+        "summary": "Post a message",
+        "description": "Stores a message. If it has no `startsAt`, or one that has passed, listeners see it straight away. The `source` of the stored message is the label of the key that posted it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MessageInput" },
+              "examples": {
+                "outage": {
+                  "summary": "A system message, showing until it is ended",
+                  "value": {
+                    "kind": "system",
+                    "color": "red",
+                    "title": "County Fire is not being received",
+                    "body": "The north tower feed dropped at 14:05. We are working on it.",
+                    "linkUrl": "https://status.example.com/incidents/31",
+                    "linkLabel": "Status page"
+                  }
+                },
+                "maintenance": {
+                  "summary": "A maintenance window, scheduled ahead",
+                  "value": {
+                    "kind": "maintenance",
+                    "title": "Server update tonight",
+                    "body": "The scanner will be unavailable for about ten minutes.",
+                    "startsAt": "2026-03-01T21:00:00Z",
+                    "endsAt": "2026-03-01T22:30:00Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The stored message.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Message" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "409": { "$ref": "#/components/responses/LimitReached" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/v1/messages/item": {
+      "parameters": [{ "$ref": "#/components/parameters/MessageId" }],
+      "get": {
+        "tags": ["Messages"],
+        "operationId": "getMessage",
+        "summary": "Read one message",
+        "responses": {
+          "200": {
+            "description": "The message.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Message" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      },
+      "put": {
+        "tags": ["Messages"],
+        "operationId": "replaceMessage",
+        "summary": "Replace a message",
+        "description": "Replaces the whole message: a field left out is cleared, not kept. The `revision` goes up by one, which shows the message again to listeners who had closed it. The `source` is not changed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MessageInput" },
+              "examples": {
+                "update": {
+                  "summary": "The same message with news",
+                  "value": {
+                    "kind": "system",
+                    "color": "orange",
+                    "title": "County Fire is partly restored",
+                    "body": "The north tower is back. The east tower is still down."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The message as it now stands.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Message" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/LimitReached" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      },
+      "delete": {
+        "tags": ["Messages"],
+        "operationId": "deleteMessage",
+        "summary": "Delete a message",
+        "description": "Removes the message altogether. Listeners stop seeing it at once. To take a message down but keep a record of it, end it instead.",
+        "responses": {
+          "204": { "description": "Deleted. There is no body." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/v1/messages/end": {
+      "parameters": [{ "$ref": "#/components/parameters/MessageId" }],
+      "post": {
+        "tags": ["Messages"],
+        "operationId": "endMessage",
+        "summary": "End a message now",
+        "description": "Sets the message's `endsAt` to the present moment, so listeners stop seeing it and it stays in the list as `ended`. Ending a message that has already ended changes nothing and returns it as it is. The request has no body.",
+        "responses": {
+          "200": {
+            "description": "The ended message.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Message" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/v1/openapi.json": {
+      "get": {
+        "tags": ["Contract"],
+        "operationId": "getContract",
+        "summary": "This document",
+        "description": "The OpenAPI description of this API, as shipped with the plugin version that is running. No key is needed.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI document.",
+            "content": {
+              "application/json": { "schema": { "type": "object" } }
+            }
+          },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "A key created under Plugins → System Messages → API keys."
+      },
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "The same key, for clients that can only send an Authorization header."
+      }
+    },
+    "parameters": {
+      "MessageId": {
+        "name": "id",
+        "in": "query",
+        "required": true,
+        "description": "The message's id, as returned when it was posted.",
+        "schema": { "type": "integer", "minimum": 1, "maximum": 999999999 },
+        "example": 12
+      }
+    },
+    "schemas": {
+      "Kind": {
+        "type": "string",
+        "enum": ["system", "maintenance"],
+        "description": "`system` for something wrong or noteworthy with what is being received; `maintenance` for work on the server itself. Listeners see the two under separate headings, system messages first."
+      },
+      "Color": {
+        "type": "string",
+        "enum": ["blue", "green", "amber", "orange", "red", "purple", "grey"],
+        "description": "The colour the message is shown in."
+      },
+      "TimeInput": {
+        "description": "A moment in time between the years 2000 and 2100: an ISO 8601 date-time with a zone, or a whole number of milliseconds since the Unix epoch. `null` or left out means none.",
+        "oneOf": [
+          { "type": "string", "format": "date-time" },
+          { "type": "integer", "minimum": 946684800000, "exclusiveMaximum": 4102444800000 },
+          { "type": "null" }
+        ]
+      },
+      "MessageInput": {
+        "type": "object",
+        "required": ["kind", "title"],
+        "properties": {
+          "kind": { "$ref": "#/components/schemas/Kind" },
+          "color": {
+            "description": "Left out, a system message is `blue` and a maintenance message is `amber`.",
+            "oneOf": [{ "$ref": "#/components/schemas/Color" }, { "type": "null" }]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The line listeners read first. Plain text; line breaks become spaces."
+          },
+          "body": {
+            "type": ["string", "null"],
+            "maxLength": 500,
+            "description": "More detail, shown under the title. Plain text; line breaks are kept. Markup is shown as written, never interpreted."
+          },
+          "linkUrl": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "maxLength": 500,
+            "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://",
+            "description": "One link shown with the message. Must begin `http://` or `https://`."
+          },
+          "linkLabel": {
+            "type": ["string", "null"],
+            "maxLength": 60,
+            "description": "The words the link is shown as. Only allowed with `linkUrl`; left out, the link reads \"More information\"."
+          },
+          "startsAt": {
+            "$ref": "#/components/schemas/TimeInput",
+            "description": "When listeners start seeing the message. Left out: as soon as it is posted."
+          },
+          "endsAt": {
+            "$ref": "#/components/schemas/TimeInput",
+            "description": "When listeners stop seeing it; the message is gone at this moment. Must be later than `startsAt`. Left out: it shows until it is ended or deleted."
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "required": ["id", "kind", "color", "title", "body", "linkUrl", "linkLabel", "startsAt", "endsAt", "state", "revision", "source", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "kind": { "$ref": "#/components/schemas/Kind" },
+          "color": { "$ref": "#/components/schemas/Color" },
+          "title": { "type": "string", "maxLength": 80 },
+          "body": { "type": ["string", "null"], "maxLength": 500 },
+          "linkUrl": { "type": ["string", "null"], "maxLength": 500 },
+          "linkLabel": { "type": ["string", "null"], "maxLength": 60 },
+          "startsAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "`null` when the message started as soon as it was posted — see `createdAt`."
+          },
+          "endsAt": { "type": ["string", "null"], "format": "date-time" },
+          "state": {
+            "type": "string",
+            "enum": ["scheduled", "active", "ended"],
+            "description": "`scheduled`: its start is still to come. `active`: listeners are being shown it. `ended`: its end has passed."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 when posted, one more for each replacement."
+          },
+          "source": {
+            "type": "string",
+            "description": "Who posted it: `admin`, or the label of the API key."
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "MessageList": {
+        "type": "object",
+        "required": ["messages"],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Message" }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "What was wrong, in a sentence."
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "The request was not understood, and nothing was changed.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "examples": {
+              "title": { "value": { "error": "title is longer than 80 characters" } },
+              "link": { "value": { "error": "linkUrl must be an http:// or https:// address" } },
+              "id": { "value": { "error": "id must be a positive whole number" } }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "No key was sent, or the key is not one this server knows.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "examples": {
+              "key": { "value": { "error": "a valid API key is required, in the X-API-Key header" } }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "No message has that id.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "examples": {
+              "missing": { "value": { "error": "no message has that id" } }
+            }
+          }
+        }
+      },
+      "LimitReached": {
+        "description": "A limit on how many messages may exist was reached, and nothing was changed.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "examples": {
+              "live": { "value": { "error": "there are already 20 messages showing or scheduled; end one first" } }
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "The server could not complete the request. The server's log says why.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "examples": {
+              "failed": { "value": { "error": "the server could not complete the request" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
