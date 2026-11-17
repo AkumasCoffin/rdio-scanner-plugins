@@ -25,7 +25,7 @@ In the administration page, open **Plugins** and press **Settings** on the Syste
 | Field | |
 |---|---|
 | Kind | **System** for something about what is being received; **Maintenance** for work on the server. |
-| Colour | Blue, green, amber, orange, red, purple or grey. System starts on blue and maintenance on amber. |
+| Colour | System messages are green, yellow or purple; maintenance messages are blue, amber or red. The first of each is the one it starts on. |
 | Title | Up to 80 characters. |
 | Text | Optional, up to 500 characters. Line breaks are kept. |
 | Link | Optional. One `http://` or `https://` address, and the words to show it as. |
@@ -33,6 +33,9 @@ In the administration page, open **Plugins** and press **Settings** on the Syste
 | Ends | Empty for "until I end it", or a time to stop. |
 
 The text is plain text. Markup typed into a message is shown as it was typed.
+
+The colours are split by kind so that a colour never means two things. Messages posted with version
+1.0, which let either kind use any colour, keep the colour they have until they are edited.
 
 **End now** takes a message down and keeps it in the list; **Delete** removes it. Listeners see either
 within a couple of seconds, without reloading.
@@ -57,7 +60,7 @@ KEY=sm_...
 
 # Post a system message that shows until it is ended
 curl -s -X POST "$BASE/v1/messages" -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"kind":"system","color":"red","title":"County Fire is not being received","body":"The north tower feed dropped at 14:05."}'
+  -d '{"kind":"system","color":"yellow","title":"County Fire is not being received","body":"The north tower feed dropped at 14:05."}'
 
 # Post a maintenance window ahead of time
 curl -s -X POST "$BASE/v1/messages" -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
@@ -93,7 +96,7 @@ server knows), 404 (no such message) or 409 (a limit was reached).
 Clients receive the messages over the websocket they already hold, as the `SYM` command:
 
 ```json
-["SYM", { "messages": [ { "id": 12, "revision": 1, "kind": "system", "color": "red",
+["SYM", { "messages": [ { "id": 12, "revision": 1, "kind": "system", "color": "yellow",
   "title": "…", "body": "", "linkUrl": "", "linkLabel": "", "startsAt": 1772402400000, "endsAt": null } ] }]
 ```
 

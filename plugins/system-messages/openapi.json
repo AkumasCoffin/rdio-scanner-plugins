@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Rdio Scanner — System Messages API",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "summary": "Post, change and remove the messages listeners see above the scanner display.",
     "description": "The System Messages plugin shows notices to everyone listening: system messages (\"County Fire is not being received\") and maintenance messages (\"The server restarts at 22:00\"). This API lets another program — a monitoring check, a deploy script, a chat bot — post and manage those messages.\n\n**Keys.** Every request except the one for this document needs an API key, created in the administration page under Plugins → System Messages → API keys. A key is shown once, when it is created. Send it in the `X-API-Key` header, or as `Authorization: Bearer <key>`. These keys are separate from the server's upload API keys and from the administrator's login.\n\n**Times.** Times are sent as ISO 8601 date-times with a zone (`2026-03-01T22:00:00Z`) or as a number of milliseconds since the Unix epoch, and are always returned as ISO 8601 in UTC. A message with no `startsAt` shows as soon as it is posted; a message with no `endsAt` shows until it is ended or deleted.\n\n**What listeners see.** A message shows while its state is `active`. Listeners connected at the time are told within a few seconds of any change, without reloading. A listener can close a message; replacing it with `PUT` shows it to them again.\n\n**Limits.** At most 20 messages may be showing or scheduled at once, and at most 500 stored. A request over either limit is refused with 409.",
     "license": {
@@ -57,7 +57,7 @@
                         {
                           "id": 12,
                           "kind": "system",
-                          "color": "red",
+                          "color": "yellow",
                           "title": "County Fire is not being received",
                           "body": "The north tower feed dropped at 14:05. We are working on it.",
                           "linkUrl": "https://status.example.com/incidents/31",
@@ -96,7 +96,7 @@
                   "summary": "A system message, showing until it is ended",
                   "value": {
                     "kind": "system",
-                    "color": "red",
+                    "color": "yellow",
                     "title": "County Fire is not being received",
                     "body": "The north tower feed dropped at 14:05. We are working on it.",
                     "linkUrl": "https://status.example.com/incidents/31",
@@ -107,6 +107,7 @@
                   "summary": "A maintenance window, scheduled ahead",
                   "value": {
                     "kind": "maintenance",
+                    "color": "amber",
                     "title": "Server update tonight",
                     "body": "The scanner will be unavailable for about ten minutes.",
                     "startsAt": "2026-03-01T21:00:00Z",
@@ -165,7 +166,7 @@
                   "summary": "The same message with news",
                   "value": {
                     "kind": "system",
-                    "color": "orange",
+                    "color": "green",
                     "title": "County Fire is partly restored",
                     "body": "The north tower is back. The east tower is still down."
                   }
@@ -272,10 +273,15 @@
         "enum": ["system", "maintenance"],
         "description": "`system` for something wrong or noteworthy with what is being received; `maintenance` for work on the server itself. Listeners see the two under separate headings, system messages first."
       },
-      "Color": {
+      "SystemColor": {
         "type": "string",
-        "enum": ["blue", "green", "amber", "orange", "red", "purple", "grey"],
-        "description": "The colour the message is shown in."
+        "enum": ["green", "yellow", "purple"],
+        "description": "The colours a `system` message can be shown in."
+      },
+      "MaintenanceColor": {
+        "type": "string",
+        "enum": ["blue", "amber", "red"],
+        "description": "The colours a `maintenance` message can be shown in."
       },
       "TimeInput": {
         "description": "A moment in time between the years 2000 and 2100: an ISO 8601 date-time with a zone, or a whole number of milliseconds since the Unix epoch. `null` or left out means none.",
@@ -291,8 +297,12 @@
         "properties": {
           "kind": { "$ref": "#/components/schemas/Kind" },
           "color": {
-            "description": "Left out, a system message is `blue` and a maintenance message is `amber`.",
-            "oneOf": [{ "$ref": "#/components/schemas/Color" }, { "type": "null" }]
+            "description": "Each kind has its own colours: a `system` message is `green`, `yellow` or `purple`, and a `maintenance` message is `blue`, `amber` or `red`. A colour belonging to the other kind is refused with 400. Left out, a system message is `green` and a maintenance message is `blue`.",
+            "oneOf": [
+              { "$ref": "#/components/schemas/SystemColor" },
+              { "$ref": "#/components/schemas/MaintenanceColor" },
+              { "type": "null" }
+            ]
           },
           "title": {
             "type": "string",
@@ -333,7 +343,11 @@
         "properties": {
           "id": { "type": "integer", "minimum": 1 },
           "kind": { "$ref": "#/components/schemas/Kind" },
-          "color": { "$ref": "#/components/schemas/Color" },
+          "color": {
+            "type": "string",
+            "description": "One of the kind's colours — see `SystemColor` and `MaintenanceColor`. A message stored by version 1.0 of the plugin keeps the colour it was given, which may be `orange`, `grey`, or a colour that now belongs to the other kind, until it is replaced.",
+            "examples": ["yellow"]
+          },
           "title": { "type": "string", "maxLength": 80 },
           "body": { "type": ["string", "null"], "maxLength": 500 },
           "linkUrl": { "type": ["string", "null"], "maxLength": 500 },
@@ -392,6 +406,7 @@
             "examples": {
               "title": { "value": { "error": "title is longer than 80 characters" } },
               "link": { "value": { "error": "linkUrl must be an http:// or https:// address" } },
+              "color": { "value": { "error": "color for a system message must be one of: green, yellow, purple" } },
               "id": { "value": { "error": "id must be a positive whole number" } }
             }
           }

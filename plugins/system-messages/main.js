@@ -14,9 +14,16 @@ var COMMAND = 'SYM'
 
 var KINDS = ['system', 'maintenance']
 
-var COLORS = ['blue', 'green', 'amber', 'orange', 'red', 'purple', 'grey']
+// Each kind has its own three colours, so the colour alone says which kind a
+// message is: nothing a maintenance message can be shown in is a colour a
+// system message can have. The first of each is the one used when none is
+// given.
+var COLORS = {
+    system: ['green', 'yellow', 'purple'],
+    maintenance: ['blue', 'amber', 'red'],
+}
 
-var DEFAULT_COLOR = { system: 'blue', maintenance: 'amber' }
+var DEFAULT_COLOR = { system: COLORS.system[0], maintenance: COLORS.maintenance[0] }
 
 var LIMITS = {
     title: 80,
@@ -103,8 +110,8 @@ function validateMessage(input) {
 
     if (isBlank(input.color)) {
         out.color = DEFAULT_COLOR[out.kind]
-    } else if (COLORS.indexOf(input.color) < 0) {
-        return { error: 'color must be one of: ' + COLORS.join(', ') }
+    } else if (COLORS[out.kind].indexOf(input.color) < 0) {
+        return { error: 'color for a ' + out.kind + ' message must be one of: ' + COLORS[out.kind].join(', ') }
     } else {
         out.color = input.color
     }

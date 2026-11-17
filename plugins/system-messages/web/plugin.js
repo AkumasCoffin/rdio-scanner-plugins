@@ -18,8 +18,14 @@ window.rdioScanner.plugins.register('system-messages', {
         var KINDS = ['system', 'maintenance']
         var KIND_LABEL = { system: 'System', maintenance: 'Maintenance' }
         var KIND_HEADING = { system: 'System messages', maintenance: 'Maintenance' }
-        var COLORS = ['blue', 'green', 'amber', 'orange', 'red', 'purple', 'grey']
-        var DEFAULT_COLOR = { system: 'blue', maintenance: 'amber' }
+        // Each kind has its own three colours; the first is its default.
+        var COLORS = { system: ['green', 'yellow', 'purple'], maintenance: ['blue', 'amber', 'red'] }
+        var DEFAULT_COLOR = { system: 'green', maintenance: 'blue' }
+        // Every colour there is a shade for. Wider than what can be chosen
+        // now: a message stored by version 1.0 may be in orange or grey, or
+        // in a colour that has since moved to the other kind, and is still
+        // shown in the colour it was given.
+        var KNOWN_COLORS = ['blue', 'green', 'amber', 'yellow', 'orange', 'red', 'purple', 'grey']
         var LIMITS = { title: 80, body: 500, linkUrl: 500, linkLabel: 60, keyLabel: 60 }
         var CLOSED_KEY = 'rdio-system-messages-closed'
 
@@ -110,7 +116,7 @@ window.rdioScanner.plugins.register('system-messages', {
         }
 
         function colorOf(message) {
-            return COLORS.indexOf(message.color) >= 0 ? message.color : DEFAULT_COLOR[message.kind] || 'blue'
+            return KNOWN_COLORS.indexOf(message.color) >= 0 ? message.color : DEFAULT_COLOR[message.kind] || 'blue'
         }
 
         // -------------------------------------------------------------------
@@ -606,8 +612,12 @@ window.rdioScanner.plugins.register('system-messages', {
                 return isNaN(ms) ? null : ms
             }
 
+            // The colour chosen, if it is one this kind can have; otherwise
+            // the kind's default. So switching kind moves the colour with it,
+            // and editing an older message in a colour its kind no longer
+            // offers starts from the default rather than an impossible choice.
             function formColor() {
-                return form.color || DEFAULT_COLOR[form.kind]
+                return COLORS[form.kind].indexOf(form.color) >= 0 ? form.color : DEFAULT_COLOR[form.kind]
             }
 
             function resetForm() {
@@ -760,7 +770,7 @@ window.rdioScanner.plugins.register('system-messages', {
                 var swatches = h(
                     'div',
                     { class: 'sysmsg-swatches', role: 'radiogroup', 'aria-label': 'Colour' },
-                    COLORS.map(function (color) {
+                    COLORS[form.kind].map(function (color) {
                         var on = formColor() === color
                         return h('button', {
                             type: 'button',
@@ -1051,7 +1061,8 @@ window.rdioScanner.plugins.register('system-messages', {
             var rgb = {
                 blue: '56, 132, 255',
                 green: '34, 170, 98',
-                amber: '240, 176, 32',
+                amber: '240, 150, 20',
+                yellow: '240, 208, 40',
                 orange: '245, 124, 32',
                 red: '232, 65, 65',
                 purple: '157, 106, 245',

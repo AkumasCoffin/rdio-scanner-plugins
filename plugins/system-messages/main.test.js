@@ -69,19 +69,34 @@ const plain = (value) => JSON.parse(JSON.stringify(value))
 test('a minimal message is accepted and filled in', () => {
     const { m } = load()
     assert.deepStrictEqual(plain(m.validateMessage({ kind: 'system', title: 'Down' })), {
-        value: { kind: 'system', color: 'blue', title: 'Down', body: null, linkUrl: null, linkLabel: null, startsAt: null, endsAt: null },
+        value: { kind: 'system', color: 'green', title: 'Down', body: null, linkUrl: null, linkLabel: null, startsAt: null, endsAt: null },
     })
-    assert.strictEqual(m.validateMessage({ kind: 'maintenance', title: 'x' }).value.color, 'amber')
+    assert.strictEqual(m.validateMessage({ kind: 'maintenance', title: 'x' }).value.color, 'blue')
 })
 
-test('every palette colour is accepted, and nothing else', () => {
+test('each kind takes its own three colours, and not the other kind\'s', () => {
     const { m } = load()
-    for (const color of ['blue', 'green', 'amber', 'orange', 'red', 'purple', 'grey']) {
-        assert.strictEqual(m.validateMessage({ kind: 'system', title: 'x', color }).value.color, color)
+    const own = { system: ['green', 'yellow', 'purple'], maintenance: ['blue', 'amber', 'red'] }
+
+    assert.deepStrictEqual(plain(m.COLORS), own)
+
+    for (const kind of Object.keys(own)) {
+        const other = kind === 'system' ? 'maintenance' : 'system'
+
+        for (const color of own[kind]) {
+            assert.strictEqual(m.validateMessage({ kind, title: 'x', color }).value.color, color)
+        }
+        for (const color of own[other]) {
+            assert.match(m.validateMessage({ kind, title: 'x', color }).error, new RegExp(own[kind].join(', ')), `${kind} ${color}`)
+        }
+        // Colours version 1.0 offered and this one does not.
+        for (const color of ['orange', 'grey', 'pink', 'GREEN', '#ff0000', 7, {}]) {
+            assert.ok(m.validateMessage({ kind, title: 'x', color }).error, `${kind} ${String(color)}`)
+        }
     }
-    for (const color of ['pink', 'RED', '#ff0000', 7, {}]) {
-        assert.ok(m.validateMessage({ kind: 'system', title: 'x', color }).error, String(color))
-    }
+
+    // No colour belongs to both kinds, or the colour would not tell them apart.
+    assert.strictEqual(own.system.filter((c) => own.maintenance.includes(c)).length, 0)
 })
 
 test('kind must be one of the two', () => {
@@ -328,7 +343,22 @@ test('openapi.json states the same limits and lists the code enforces', () => {
     const limits = plain(m.LIMITS)
 
     assert.deepStrictEqual(schemas.Kind.enum, plain(m.KINDS))
-    assert.deepStrictEqual(schemas.Color.enum, plain(m.COLORS))
+    assert.deepStrictEqual(schemas.SystemColor.enum, plain(m.COLORS).system)
+    assert.deepStrictEqual(schemas.MaintenanceColor.enum, plain(m.COLORS).maintenance)
+
+    // Every example in the document is a message the server would accept.
+    const examples = []
+    const walk = (node) => {
+        if (!node || typeof node !== 'object') return
+        if (node.kind && node.title && typeof node.kind === 'string') examples.push(node)
+        Object.values(node).forEach(walk)
+    }
+    walk(spec.paths)
+    assert.ok(examples.length >= 4)
+    for (const example of examples) {
+        const input = { kind: example.kind, color: example.color, title: example.title, body: example.body, linkUrl: example.linkUrl, linkLabel: example.linkLabel }
+        assert.strictEqual(m.validateMessage(input).error, undefined, JSON.stringify(input))
+    }
     assert.strictEqual(schemas.MessageInput.properties.title.maxLength, limits.title)
     assert.strictEqual(schemas.MessageInput.properties.body.maxLength, limits.body)
     assert.strictEqual(schemas.MessageInput.properties.linkUrl.maxLength, limits.linkUrl)
