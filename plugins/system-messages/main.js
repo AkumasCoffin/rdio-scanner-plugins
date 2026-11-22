@@ -16,8 +16,9 @@ var KINDS = ['system', 'maintenance']
 
 // Each kind has its own five colours, so the colour alone says which kind a
 // message is: nothing a maintenance message can be shown in is a colour a
-// system message can have. Each set runs from calm to serious, and the first
-// is the one used when none is given.
+// system message can have. The system set runs from calm to serious, the
+// maintenance set follows the work from planned to finished, and the first of
+// each is the one used when none is given.
 //
 //   system       what is being received
 //     green      all clear, or restored
@@ -95,12 +96,18 @@ function parseTime(value, name) {
     return { value: ms }
 }
 
+// Control characters other than tab and the line endings. They show as
+// nothing, and a NUL is refused outright by PostgreSQL, which would turn a
+// stray byte in a title into a 500.
+var CONTROLS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
+
 function cleanLine(value) {
-    return String(value).replace(/\s+/g, ' ').trim()
+    return String(value).replace(CONTROLS, '').replace(/\s+/g, ' ').trim()
 }
 
 function cleanText(value) {
     return String(value)
+        .replace(CONTROLS, '')
         .replace(/\r\n?/g, '\n')
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')

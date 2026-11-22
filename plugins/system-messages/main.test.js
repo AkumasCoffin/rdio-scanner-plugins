@@ -136,6 +136,15 @@ test('body: optional, line breaks kept, 500 characters at most', () => {
     assert.ok(m.validateMessage({ kind: 'system', title: 'x', body: ['a'] }).error)
 })
 
+test('control characters are dropped, line breaks and tabs are not', () => {
+    const { m } = load()
+    const out = m.validateMessage({ kind: 'system', title: 'a\u0000b\u0007\tc\u007f', body: 'one\u0000\r\ntwo\u001b' }).value
+    assert.strictEqual(out.title, 'ab c')
+    assert.strictEqual(out.body, 'one\ntwo')
+    // Nothing but control characters is no title at all.
+    assert.ok(m.validateMessage({ kind: 'system', title: '\u0000\u0001' }).error)
+})
+
 test('markup in the text is kept as written, not stripped', () => {
     const { m } = load()
     const text = '<script>alert(1)</script> & "quotes"'

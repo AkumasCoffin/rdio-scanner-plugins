@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Rdio Scanner — System Messages API",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "summary": "Post, change and remove the messages listeners see above the scanner display.",
     "description": "The System Messages plugin shows notices to everyone listening: system messages (\"County Fire is not being received\") and maintenance messages (\"The server restarts at 22:00\"). This API lets another program — a monitoring check, a deploy script, a chat bot — post and manage those messages.\n\n**Keys.** Every request except the one for this document needs an API key, created in the administration page under Plugins → System Messages → API keys. A key is shown once, when it is created. Send it in the `X-API-Key` header, or as `Authorization: Bearer <key>`. These keys are separate from the server's upload API keys and from the administrator's login.\n\n**Times.** Times are sent as ISO 8601 date-times with a zone (`2026-03-01T22:00:00Z`) or as a number of milliseconds since the Unix epoch, and are always returned as ISO 8601 in UTC. A message with no `startsAt` shows as soon as it is posted; a message with no `endsAt` shows until it is ended or deleted.\n\n**What listeners see.** A message shows while its state is `active`. Listeners connected at the time are told within a few seconds of any change, without reloading. A listener can close a message; replacing it with `PUT` shows it to them again.\n\n**Limits.** At most 20 messages may be showing or scheduled at once, and at most 500 stored. A request over either limit is refused with 409.",
     "license": {
@@ -345,7 +345,7 @@
           "kind": { "$ref": "#/components/schemas/Kind" },
           "color": {
             "type": "string",
-            "description": "One of the kind's colours — see `SystemColor` and `MaintenanceColor`. A message stored by version 1.0 of the plugin keeps the colour it was given, which may be a colour that now belongs to the other kind, until it is replaced.",
+            "description": "One of the kind's colours — see `SystemColor` and `MaintenanceColor`. A message stored by version 1.0 of the plugin keeps the colour it was given, which may be a colour that now belongs to the other kind, until it is replaced. Such a message cannot be sent back unchanged: a replace must give one of the kind's current colours, or leave `color` out to take the default.",
             "examples": ["yellow"]
           },
           "title": { "type": "string", "maxLength": 80 },

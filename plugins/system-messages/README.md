@@ -34,8 +34,8 @@ In the administration page, open **Plugins** and press **Settings** on the Syste
 
 The text is plain text. Markup typed into a message is shown as it was typed.
 
-The colours are split by kind so that a colour never means two things, and each set runs from calm
-to serious:
+The colours are split by kind so that a colour never means two things. The system set runs from calm
+to serious, and the maintenance set follows the work from planned to finished:
 
 | System | | Maintenance | |
 |---|---|---|---|

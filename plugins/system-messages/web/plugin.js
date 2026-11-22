@@ -18,8 +18,7 @@ window.rdioScanner.plugins.register('system-messages', {
         var KINDS = ['system', 'maintenance']
         var KIND_LABEL = { system: 'System', maintenance: 'Maintenance' }
         var KIND_HEADING = { system: 'System messages', maintenance: 'Maintenance' }
-        // Each kind has its own five colours, calm to serious; the first is
-        // its default.
+        // Each kind has its own five colours; the first is its default.
         var COLORS = {
             system: ['green', 'teal', 'purple', 'yellow', 'pink'],
             maintenance: ['blue', 'amber', 'orange', 'red', 'grey'],
@@ -640,7 +639,13 @@ window.rdioScanner.plugins.register('system-messages', {
             }
 
             function run(work, done) {
-                if (busy) return
+                if (busy) {
+                    // The press was dropped. Redraw, so a "Delete? Yes / No"
+                    // that was just answered does not stay on screen.
+                    renderList()
+                    renderKeys()
+                    return
+                }
                 busy = true
                 say('')
 
@@ -653,7 +658,10 @@ window.rdioScanner.plugins.register('system-messages', {
                     })
                     .then(null, function (err) {
                         busy = false
-                        if (alive) say(err.message, true)
+                        if (!alive) return
+                        say(err.message, true)
+                        renderList()
+                        renderKeys()
                     })
             }
 
@@ -686,6 +694,19 @@ window.rdioScanner.plugins.register('system-messages', {
                 return fromLocalInput(form[key])
             }
 
+            // What the form says under the swatches. A message stored by an
+            // earlier version may be in a colour its kind no longer has;
+            // saving it changes the colour, so that is said rather than left
+            // to be noticed.
+            function colorHint() {
+                var hint = COLOR_HINT[formColor()]
+                var was = form.colorWas
+                if (was && form.color === was && COLORS[form.kind].indexOf(was) < 0) {
+                    hint += ' — this message was ' + was + ', which is no longer offered for this kind; saving changes it'
+                }
+                return hint
+            }
+
             function formColor() {
                 return COLORS[form.kind].indexOf(form.color) >= 0 ? form.color : DEFAULT_COLOR[form.kind]
             }
@@ -711,6 +732,7 @@ window.rdioScanner.plugins.register('system-messages', {
                     // not touched is sent back exactly, seconds and all.
                     startsAtWas: message.startsAt,
                     endsAtWas: message.endsAt,
+                    colorWas: message.color,
                 }
                 say('')
                 renderForm()
@@ -726,8 +748,11 @@ window.rdioScanner.plugins.register('system-messages', {
                 if (form.linkUrl.trim() && !safeUrl(form.linkUrl.trim())) return 'The link must begin with http:// or https://.'
                 if (form.linkLabel.trim() && !form.linkUrl.trim()) return 'Link text needs a link address.'
 
-                var starts = fromLocalInput(form.startsAt)
-                var ends = fromLocalInput(form.endsAt)
+                // The exact times, not the minutes shown: a message ended
+                // within a minute of starting shows the same minute in both
+                // fields and is still in order.
+                var starts = timeOf('startsAt')
+                var ends = timeOf('endsAt')
                 if (starts !== null && ends !== null && ends <= starts) return 'The end must be later than the start.'
 
                 return ''
@@ -878,7 +903,7 @@ window.rdioScanner.plugins.register('system-messages', {
                         h('div', { class: 'sysmsg-field' }, [
                             h('span', { class: 'sysmsg-label', text: 'Colour' }),
                             swatches,
-                            h('span', { class: 'sysmsg-hint', text: COLOR_HINT[formColor()] }),
+                            h('span', { class: 'sysmsg-hint', text: colorHint() }),
                         ]),
                     ]),
                     field('Title', title, counted('title', LIMITS.title, title)),
