@@ -22,7 +22,7 @@
                 return chain.then(function () { return ctx.assets.loadScript('web/' + file) })
             }, Promise.resolve())
 
-            loading = loading.then(function () { return ctx.assets.loadStyle('web/overlay.css') })
+            loading = loading.then(function () { return loadStyle(ctx, 'web/overlay.css') })
 
             loading.then(function () {
                 ctx.routes.register({
@@ -36,6 +36,31 @@
             })
         },
     })
+
+    // The overlay's stylesheet, added to the page by the plugin itself rather
+    // than through ctx.assets.loadStyle.
+    //
+    // loadStyle keeps what it loads at the end of <head>, by moving it back
+    // there whenever something is added after it. Up to rdio-scanner 6.14.4
+    // that went wrong as soon as two plugins had styles: each was moved behind
+    // the other on every frame, and a <link> that is moved is fetched again, so
+    // this stylesheet never stayed applied and the overlay drew as a column of
+    // plain text. The overlay's rules are all on its own class names and do
+    // not need to be last, so it simply stays where it is put.
+    //
+    // Marked as the plugin's, so the host still removes it when the plugin is
+    // switched off.
+    function loadStyle(ctx, path) {
+        return new Promise(function (resolve, reject) {
+            var link = document.createElement('link')
+            link.rel = 'stylesheet'
+            link.href = ctx.assets.url(path)
+            link.dataset.rdioPlugin = 'stream'
+            link.onload = function () { resolve() }
+            link.onerror = function () { reject(new Error('cannot load ' + path)) }
+            document.head.appendChild(link)
+        })
+    }
 
     function mount(ctx, container) {
         var app = ctx.app
